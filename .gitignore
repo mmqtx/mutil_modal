@@ -1,0 +1,90 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv/
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+*.ipynb_checkpoints/
+
+# Local datasets and generated data
+/dataset/
+/datasets/
+/external_data/
+*.jsonl.tmp
+*.download
+*.part
+
+# Pretrained models (too large for git)
+pretrained/*
+!pretrained/README.md
+!pretrained/.gitkeep
+
+# Output files
+outputs/
+logs/
+runs/
+heatmaps/
+predictions/
+*.log
+
+# Checkpoints
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.h5
+*.safetensors
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Experiment tracking
+experiment/
+experiments/
+wandb/
+swanlog/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+*.part
