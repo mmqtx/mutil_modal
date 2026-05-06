@@ -46,10 +46,13 @@ conda run -n pytorch python -m py_compile config.py data/*.py models/*.py script
   - 默认关闭 head contrastive；
   - 更重的训练选项只作为显式消融实验开启。
 
-## 结构化标签
+## 结构化数据版本
 
-- Qwen 提取的结构化标签用于训练前必须先校验。
-- 使用 `scripts/validate_structured_labels.py` 检查字段结构、合法标签、文件存在性和类别分布。
+- 结构化数据只在“创建、清洗、合并、重标注或冻结数据版本”时集中校验，不要求每次训练前重复校验。
+- 当前目标是尽可能优化已有 Qwen 结构化数据，保证字段合法、类别分布合理、缺失文件最少，形成一个稳定的最佳数据版本。
+- 一旦确定最佳数据版本，后续模型结构、loss、训练策略和消融实验都必须固定在这一版数据上进行，避免数据变化干扰实验可比性。
+- 如果确实需要修改结构化数据，必须视为新的数据版本，并记录修改原因、分布变化和验证结果。
+- 使用 `scripts/validate_structured_labels.py` 检查字段结构、合法标签、文件存在性和类别分布；该脚本用于数据版本治理，不是每次训练的必跑步骤。
 - 不直接把隐藏 CoT 文本作为训练目标。
 - 自然语言报告应基于 `structured_report` 预测结果生成，减少幻觉。
 
@@ -67,7 +70,7 @@ conda run -n pytorch python -m py_compile config.py data/*.py models/*.py script
 conda run -n pytorch python -m py_compile config.py data/*.py models/*.py scripts/*.py
 ```
 
-如果修改了数据管线，还要运行：
+如果创建、修改或冻结结构化数据版本，还要运行：
 
 ```bash
 conda run -n pytorch python scripts/validate_structured_labels.py --limit 1000
