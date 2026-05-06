@@ -8,6 +8,7 @@ This file records implementation changes, experiment results, and Git commits fo
 
 - Tightened `.gitignore` so code under `data/` remains trackable while local datasets, outputs, heatmaps, checkpoints, and pretrained model weights stay out of Git.
 - Kept `pretrained/README.md` as the only tracked file under `pretrained/` to document required external weights.
+- Added `DEVELOPMENT_RULES.md` as the project-level workflow contract for future changes.
 
 ### Training Pipeline Fixes
 
@@ -35,3 +36,4 @@ This file records implementation changes, experiment results, and Git commits fo
 - `b7bc864` - `chore: prepare repository ignore rules and optimization log`
 - `39b6e62` - `fix: make dataset splits and evaluation deterministic`
 - `266f93c` - `feat: add structured label validation and prediction docs`
+- Pending - `docs: add project development rules`
