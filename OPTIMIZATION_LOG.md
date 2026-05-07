@@ -100,3 +100,34 @@
 ### 提交记录
 
 - 待提交 - `fix: include v4 ischemia tasks in evaluation`
+
+### 恢复训练与磁盘控制
+
+- `/home` 空间不足导致训练中断后，清理了不必要的大模型产物：
+  - 删除 `best_loss.pt`，保留按 macro-F1 选择的 `best.pt`；
+  - 删除 smoke test run `outputs/v4_dual_cross_probe`；
+  - 删除空 launcher 日志；
+  - 删除原始 `v4_dual_cross` 的旧 `best.pt`，保留完整评估结果和阈值文件；当前继续使用 resume run 的 `best.pt`。
+- 修改训练脚本：默认不再保存 `best_loss.pt`，新增 `--save-best-loss` 作为显式开关，避免后续实验再次占用额外约 2GB 空间。
+- 从 `v4_dual_cross` 的最佳 checkpoint 恢复训练为 `v4_dual_cross_resume`，run 目录为 `outputs/v4_dual_cross_resume/20260507_175837`。
+- 恢复训练在 epoch 7 达到最佳验证 macro-F1 0.7714，之后长期未刷新，判断为收益平台期，因此提前停止，保留 `best.pt`。
+
+### 当前最佳结果
+
+- `v4_dual_cross_resume/20260507_175837/checkpoints/best.pt` 未校准完整 15 任务 test：
+  - Overall Macro-F1：0.7834
+- 使用验证集阈值校准后的完整 15 任务 test：
+  - Overall Macro-F1：0.7890
+  - 主要弱项：`voltage.rvh` 0.6667、`conduction_axis.pr_status` 0.6925、`qt_electrolytes.qt_status` 0.7010、`ischemia_infarct.st_elevation_present` 0.7128、`conduction_axis.conduction_status` 0.7269。
+- 阶段判断：继续同配置训练收益有限，下一步应做模态贡献判断，优先启动 `signal only` 实验，确认图像分支对弱项是帮助还是干扰。
+
+### 验证结果
+
+- `conda run -n pytorch python -m py_compile config.py data/*.py models/*.py scripts/*.py`：通过。
+- `python scripts/evaluate.py --checkpoint outputs/v4_dual_cross_resume/20260507_175837/checkpoints/best.pt --split test --output-dir outputs/v4_dual_cross_resume/20260507_175837/evaluation_test_full_v4`：通过。
+- `python scripts/calibrate_thresholds.py --checkpoint outputs/v4_dual_cross_resume/20260507_175837/checkpoints/best.pt --objective macro_f1`：通过，生成 `thresholds_val.json`。
+- `python scripts/evaluate.py --checkpoint outputs/v4_dual_cross_resume/20260507_175837/checkpoints/best.pt --split test --thresholds outputs/v4_dual_cross_resume/20260507_175837/thresholds_val.json --output-dir outputs/v4_dual_cross_resume/20260507_175837/evaluation_test_full_v4_thresholded`：通过。
+
+### 提交记录
+
+- 待提交 - `chore: reduce checkpoint storage during training`

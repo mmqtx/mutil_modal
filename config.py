@@ -154,6 +154,7 @@ AMP_ENABLED    = True      # mixed precision (bf16)  / 混合精度训练
 LOG_INTERVAL   = 50        # steps between logging  / 日志打印间隔步数
 SAVE_INTERVAL     = 10        # epochs between checkpoints  / 检查点保存间隔轮数
 SAVE_EVERY_EPOCH  = False     # whether to save periodic checkpoints  / 是否启用定期保存，False 则只保存 best.pt
+SAVE_BEST_LOSS    = False     # 是否额外保存 best_loss.pt；默认关闭以节省磁盘空间
 
 # Focal Loss 参数 (针对类别不平衡)
 FOCAL_GAMMA    = 3.0       # focusing parameter (增大以更关注难样本/稀疏类) / 默认2.0，调大至3.0加强对难样本的关注

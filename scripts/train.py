@@ -606,6 +606,8 @@ def main():
     parser.add_argument("--log-interval", type=int, default=LOG_INTERVAL)
     parser.add_argument("--save-interval", type=int, default=SAVE_INTERVAL)
     parser.add_argument("--save-every-epoch", action="store_true", default=SAVE_EVERY_EPOCH)
+    parser.add_argument("--save-best-loss", action="store_true", default=SAVE_BEST_LOSS,
+                        help="额外保存 best_loss.pt；默认关闭以减少磁盘占用")
     parser.add_argument("--contrastive-weight", type=float, default=CONTRASTIVE_WEIGHT)
     parser.add_argument("--freeze-signal-encoder", action="store_true", default=FREEZE_SIGNAL_ENCODER,
                         help="Freeze GEM ECG signal encoder")
@@ -961,8 +963,8 @@ def main():
                 }, os.path.join(args["_ckpt_dir"], "best.pt"))
                 logging.info(f"  ** Best macro_f1={best_metric:.4f} (val_loss={best_val_loss:.4f})")
 
-            # Also save best loss checkpoint for comparison
-            if val_m["total"]["loss"] < best_val_loss:
+            # 可选保存 best_loss.pt。默认关闭，避免额外占用约 2GB 磁盘空间。
+            if args.get("save_best_loss", False) and val_m["total"]["loss"] < best_val_loss:
                 best_val_loss = val_m["total"]["loss"]
                 torch.save({
                     "model": model.module.state_dict(),
