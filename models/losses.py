@@ -256,6 +256,7 @@ class DynamicMultiTaskLoss(nn.Module):
         device: torch.device = torch.device('cuda:0'),
         init_log_vars: float = 0.0,
         static_class_weights: Dict[str, torch.Tensor] = None,
+        task_loss_weights: Dict[str, float] = None,
     ):
         """
         Args:
@@ -286,6 +287,15 @@ class DynamicMultiTaskLoss(nn.Module):
 
         self.task_names = list(task_config.keys())
         self.task_types = {name: typ for name, (_, typ) in task_config.items()}
+        task_loss_weights = task_loss_weights or {}
+        task_weight_values = [
+            float(task_loss_weights.get(task_name, 1.0))
+            for task_name in self.task_names
+        ]
+        self.register_buffer(
+            "task_loss_weights",
+            torch.tensor(task_weight_values, dtype=torch.float32, device=device),
+        )
 
     def compute_task_loss(
         self,
@@ -379,6 +389,9 @@ class DynamicMultiTaskLoss(nn.Module):
             task_loss, task_details = self.compute_task_loss(
                 task_name, logits, targets, log_var
             )
+            task_weight = self.task_loss_weights[i]
+            task_loss = task_loss * task_weight
+            task_details["task_weight"] = float(task_weight.detach().item())
 
             total_loss = total_loss + task_loss
             reg_loss = reg_loss + log_var / 2.0

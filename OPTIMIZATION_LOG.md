@@ -160,4 +160,45 @@
 
 ### 提交记录
 
-- 待提交 - `feat: add efficient single-modality loading and encoder lr scaling`
+- `b0df38f` - `feat: add efficient single-modality loading and encoder lr scaling`
+
+## 2026-05-07 低学习率解冻实验收敛判断与弱任务损失权重
+
+### 实验结论
+
+- 启动 `v4_signal_unfreeze_low_lr`：`--input-mode signal --unfreeze-signal-encoder --encoder-lr-scale 0.1 --batch-size 64 --epochs 12`。
+- 该实验在 `/data/ljq24358/ecg_experiments/mutil_modal_outputs/v4_signal_unfreeze_low_lr/20260507_212759` 运行，未占用 `/home` 保存大 checkpoint。
+- 验证集 macro-F1：
+  - epoch 0：0.5764
+  - epoch 1：0.7408
+  - epoch 2：0.7583
+  - epoch 3：0.7591
+  - epoch 4：0.7547
+  - epoch 5：0.7569
+- 结论：温和解冻 GEM signal encoder 没有超过冻结信号模型的验证峰值 0.7706，也没有接近当前双模态最佳 0.7714；判断为无收益实验。
+- 已停止该实验并删除无用 `best.pt`，保留日志用于复盘。
+
+### 方法更新
+
+- 新增子任务级损失权重机制，默认关闭，需要显式添加 `--use-subtask-loss-weights`。
+- 当前弱任务权重：
+  - `voltage.rvh`: 1.8
+  - `conduction_axis.pr_status`: 1.4
+  - `qt_electrolytes.qt_status`: 1.4
+  - `ischemia_infarct.st_elevation_present`: 1.3
+  - `conduction_axis.conduction_status`: 1.2
+- 修改 `DynamicMultiTaskLoss`，在不改变类别权重和 uncertainty weighting 的基础上，对指定子任务的最终 task loss 做温和放大。
+- `resume` 读取旧 loss state 时改为 `strict=False`，避免新增 buffer 后不能加载旧 checkpoint。
+
+### 验证结果
+
+- `conda run -n pytorch python -m py_compile config.py models/losses.py scripts/train.py`：通过。
+
+### 下一步
+
+- 启动 `v4_dual_task_weighted`，使用双模态输入、冻结两个 encoder、启用弱任务损失权重。
+- 若验证 macro-F1 超过当前双模态最佳 0.7714，再做完整 test 与阈值校准；否则停止并记录为无收益。
+
+### 提交记录
+
+- 待提交 - `feat: add optional subtask loss weighting`

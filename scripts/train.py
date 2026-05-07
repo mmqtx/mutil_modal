@@ -229,7 +229,7 @@ class LossComputer(nn.Module):
     Wrapper for DynamicMultiTaskLoss that integrates with existing training loop.
     """
 
-    def __init__(self, task_config, device, static_class_weights=None):
+    def __init__(self, task_config, device, static_class_weights=None, task_loss_weights=None):
         super().__init__()
         self.device = device
         self.dynamic_loss = DynamicMultiTaskLoss(
@@ -237,6 +237,7 @@ class LossComputer(nn.Module):
             focal_gamma=FOCAL_GAMMA,  # 从config读取
             device=device,
             static_class_weights=static_class_weights,
+            task_loss_weights=task_loss_weights,
         )
 
     def compute(self, logits_dict, labels):
@@ -274,10 +275,15 @@ class LossComputer(nn.Module):
         return self.dynamic_loss.get_log_stats()
 
 
-def create_loss_computer(vocab, device, data_version="v2", static_class_weights=None):
+def create_loss_computer(vocab, device, data_version="v2", static_class_weights=None, task_loss_weights=None):
     """Factory function to create LossComputer."""
     task_config = build_task_config(vocab, data_version)
-    return LossComputer(task_config, device, static_class_weights=static_class_weights)
+    return LossComputer(
+        task_config,
+        device,
+        static_class_weights=static_class_weights,
+        task_loss_weights=task_loss_weights,
+    )
 
 
 def build_optimizer_param_groups(model, loss_computer, base_lr, encoder_lr_scale):
@@ -313,6 +319,16 @@ def build_optimizer_param_groups(model, loss_computer, base_lr, encoder_lr_scale
     n_other_params = sum(p.numel() for p in other_params)
     n_encoder_params = sum(p.numel() for p in encoder_params)
     return param_groups, n_other_params, n_encoder_params
+
+
+def build_subtask_loss_weights(task_config, enabled):
+    """根据配置生成子任务损失权重；默认全部为 1.0。"""
+    if not enabled:
+        return None
+    return {
+        task_name: float(SUBTASK_LOSS_WEIGHTS.get(task_name, 1.0))
+        for task_name in task_config
+    }
 
 
 def make_split_indices(total_size, seed, train_ratio, val_ratio):
@@ -668,6 +684,8 @@ def main():
                         help="Enable signal CutMix augmentation (off by default)")
     parser.add_argument("--no-static-class-weights", action="store_true", default=False,
                         help="Disable static effective-number class weights")
+    parser.add_argument("--use-subtask-loss-weights", action="store_true", default=USE_SUBTASK_LOSS_WEIGHTS,
+                        help="启用 config.SUBTASK_LOSS_WEIGHTS 中的弱任务损失权重")
     # Head-level contrastive learning (新增)
     parser.add_argument("--use-head-contrastive", action="store_true", default=USE_HEAD_CONTRASTIVE,
                         help="使用分类头级别的对比学习 / Enable head-level contrastive learning")
@@ -896,6 +914,10 @@ def main():
         torch.device(f"cuda:{rank}"),
         DATA_VERSION,
         static_class_weights=static_class_weights,
+        task_loss_weights=build_subtask_loss_weights(
+            task_config,
+            args.get("use_subtask_loss_weights", False),
+        ),
     )
     # Wrap loss_computer in DDP as well since it has learnable parameters
     loss_computer = DDP(loss_computer, device_ids=[rank], output_device=rank, find_unused_parameters=True)
@@ -921,6 +943,13 @@ def main():
         logging.info(f"  Learnable class weight params: {total_weight_params:,}")
         logging.info(f"  Focal gamma: {loss_computer.module.dynamic_loss.focal_gamma}")
         logging.info(f"  Static class weights: {static_class_weights is not None}")
+        if args.get("use_subtask_loss_weights", False):
+            enabled_weights = {
+                task_name: weight
+                for task_name, weight in SUBTASK_LOSS_WEIGHTS.items()
+                if task_name in task_config
+            }
+            logging.info(f"  Subtask loss weights: {enabled_weights}")
 
     # ---- Optimizer ----
     # 预训练编码器使用更小学习率，新训练模块和动态损失参数使用主学习率。
@@ -958,7 +987,7 @@ def main():
         start_epoch = ckpt["epoch"] + 1
         # Also restore loss_computer state if available
         if "loss_computer" in ckpt:
-            loss_computer.module.load_state_dict(ckpt["loss_computer"])
+            loss_computer.module.load_state_dict(ckpt["loss_computer"], strict=False)
 
     # ---- Loop ----
     best_metric = 0.0  # Track best Macro-F1 mean instead of loss
