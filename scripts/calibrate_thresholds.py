@@ -164,6 +164,8 @@ def main():
         JSONL_PATH,
         IMAGE_ROOT,
         is_train=False,
+        load_signal=args.input_mode in {"dual", "signal"},
+        load_image=args.input_mode in {"dual", "image"},
         use_signal_augmentation=False,
     )
     total_size = len(full_ds)

@@ -99,7 +99,7 @@
 
 ### 提交记录
 
-- 待提交 - `fix: include v4 ischemia tasks in evaluation`
+- `845ae7d` - `fix: include v4 ischemia tasks in evaluation`
 
 ### 恢复训练与磁盘控制
 
@@ -130,4 +130,34 @@
 
 ### 提交记录
 
-- 待提交 - `chore: reduce checkpoint storage during training`
+- `531887a` - `chore: reduce checkpoint storage during training`
+
+## 2026-05-07 模态消融、单模态 I/O 修正与低学习率解冻准备
+
+### 已完成工作
+
+- 完成 `signal only` 冻结编码器消融实验，输出目录迁移到 `/data/ljq24358/ecg_experiments/mutil_modal_outputs`，避免继续挤占 `/home`。
+- `signal only` 阈值校准后 test Overall Macro-F1 为 0.7854，略低于当前最佳双模态阈值校准结果 0.7890；说明信号分支很强，但图像分支对 `rvh`、`pr_status`、`qt_status`、`st_elevation_present` 等弱项仍有帮助。
+- 发现 `--input-mode signal` 时 dataset 仍然读取 ECG 图像，导致信号单模态实验被无意义的图片 I/O 拖慢。
+- 修改 `data/dataset.py`，新增 `load_signal` 和 `load_image` 控制；单模态实验只读取实际使用的模态，未使用模态返回同形状零张量占位，不改动任何训练数据。
+- 同步修改 `scripts/train.py`、`scripts/evaluate.py`、`scripts/calibrate_thresholds.py`，根据 `input_mode` 自动跳过未使用模态的 I/O。
+- 新增 `--encoder-lr-scale`，默认 0.1；后续解冻 GEM/CLIP 预训练编码器时，编码器学习率为主学习率的 0.1，新训练模块仍使用主学习率，降低破坏预训练表征的风险。
+- 中止并删除无效的全学习率 `v4_signal_unfreeze` 试跑；该 run 未完成第 0 轮、未产生有效 checkpoint。
+- 将旧的 `outputs/v4_dual_cross_resume` 移动到 `/data/ljq24358/ecg_experiments/archived_home_outputs`，并在原位置保留软链接，释放 `/home` 约 2GB 空间。
+
+### 验证结果
+
+- `conda run -n pytorch python -m py_compile config.py data/dataset.py scripts/train.py scripts/evaluate.py scripts/calibrate_thresholds.py`：通过。
+- dataset 读取计时：
+  - `signal_only` 20 个样本：0.276 秒。
+  - `dual` 20 个样本：3.888 秒。
+- 磁盘策略：后续完整实验默认使用 `/data/ljq24358/ecg_experiments/mutil_modal_outputs`；`/home` 只保留代码、轻量日志和软链接。
+
+### 下一步
+
+- 启动新的 `v4_signal_unfreeze_low_lr` 实验，使用 `--input-mode signal --unfreeze-signal-encoder --encoder-lr-scale 0.1`，验证温和解冻是否能超过冻结信号模型。
+- 如果温和解冻仍无法超过当前双模态最佳 0.7890，则转向弱任务定向优化，包括任务级 loss 权重和少数类阈值/校准策略。
+
+### 提交记录
+
+- 待提交 - `feat: add efficient single-modality loading and encoder lr scaling`

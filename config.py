@@ -146,6 +146,7 @@ CLASS_WEIGHT_MAX = 20.0
 # Training  / 训练超参数
 # ---------------------------------------------------------------------------
 LR             = 1e-4      # learning rate (降低以获得更稳定的收敛) / 学习率
+ENCODER_LR_SCALE = 0.1     # 解冻预训练编码器时使用更小学习率，实际 encoder_lr = LR * ENCODER_LR_SCALE
 WEIGHT_DECAY   = 0.05      # weight decay  / 权重衰减
 WARMUP_STEPS   = 1000      # warmup steps  / 预热步数
 EPOCHS         = 30        # total epochs  / 总训练轮数

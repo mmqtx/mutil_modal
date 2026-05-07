@@ -410,6 +410,8 @@ Examples:
         jsonl_path=JSONL_PATH,
         image_root=IMAGE_ROOT,
         is_train=False,
+        load_signal=args.input_mode in {"dual", "signal"},
+        load_image=args.input_mode in {"dual", "image"},
         use_signal_augmentation=False,
     )
     head_subtasks = build_head_subtasks(full_ds.vocab, DATA_VERSION)

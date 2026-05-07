@@ -77,6 +77,8 @@ class ECGMultiModalDataset(Dataset):
         seq_length: int = 5000,
         image_size: int = 336,
         max_samples: Optional[int] = None,
+        load_signal: bool = True,
+        load_image: bool = True,
         use_signal_augmentation: bool = True,
         use_baseline_wander: bool = True,
         use_cutmix: bool = False,
@@ -85,6 +87,10 @@ class ECGMultiModalDataset(Dataset):
         super().__init__()
         self.image_root = image_root
         self.is_train = is_train
+        self.seq_length = seq_length
+        self.image_size = image_size
+        self.load_signal = load_signal
+        self.load_image = load_image
 
         # Transforms
         self.signal_transform = get_signal_transform(
@@ -425,8 +431,16 @@ class ECGMultiModalDataset(Dataset):
         rec = self.records[idx]
         sd = rec["structured_data"]
 
-        signal = self._load_signal(rec["signal_path"])
-        image  = self._load_image(rec["image_paths"][0])
+        signal = (
+            self._load_signal(rec["signal_path"])
+            if self.load_signal
+            else torch.zeros(12, self.seq_length, dtype=torch.float32)
+        )
+        image = (
+            self._load_image(rec["image_paths"][0])
+            if self.load_image
+            else torch.zeros(3, self.image_size, self.image_size, dtype=torch.float32)
+        )
         labels = self._encode_labels(sd)
 
         # Handle both "id" (v2/v3) and "file_id" (v4)

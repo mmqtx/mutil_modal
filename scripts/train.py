@@ -280,6 +280,41 @@ def create_loss_computer(vocab, device, data_version="v2", static_class_weights=
     return LossComputer(task_config, device, static_class_weights=static_class_weights)
 
 
+def build_optimizer_param_groups(model, loss_computer, base_lr, encoder_lr_scale):
+    """为预训练编码器和新训练模块设置不同学习率。
+
+    解冻 GEM/CLIP 编码器时，预训练权重通常需要更保守的学习率；分类头、融合层、
+    投影层和动态损失参数继续使用主学习率。
+    """
+    model_for_names = model.module if isinstance(model, DDP) else model
+    encoder_prefixes = ("signal_backbone.", "image_backbone.")
+    encoder_params = []
+    other_params = []
+
+    for name, param in model_for_names.named_parameters():
+        if not param.requires_grad:
+            continue
+        if name.startswith(encoder_prefixes):
+            encoder_params.append(param)
+        else:
+            other_params.append(param)
+
+    other_params.extend([p for p in loss_computer.parameters() if p.requires_grad])
+
+    param_groups = []
+    if other_params:
+        param_groups.append({"params": other_params, "lr": base_lr, "name": "new_modules"})
+    if encoder_params:
+        param_groups.append({
+            "params": encoder_params,
+            "lr": base_lr * encoder_lr_scale,
+            "name": "pretrained_encoders",
+        })
+    n_other_params = sum(p.numel() for p in other_params)
+    n_encoder_params = sum(p.numel() for p in encoder_params)
+    return param_groups, n_other_params, n_encoder_params
+
+
 def make_split_indices(total_size, seed, train_ratio, val_ratio):
     """Create deterministic train/val/test indices."""
     generator = torch.Generator().manual_seed(seed)
@@ -598,6 +633,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=EPOCHS)
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     parser.add_argument("--lr", type=float, default=LR)
+    parser.add_argument("--encoder-lr-scale", type=float, default=ENCODER_LR_SCALE,
+                        help="解冻预训练信号/图像编码器时的学习率倍率，实际 encoder_lr = lr * scale")
     parser.add_argument("--wd", type=float, default=WEIGHT_DECAY)
     parser.add_argument("--warmup-steps", type=int, default=WARMUP_STEPS)
     parser.add_argument("--grad-clip", type=float, default=GRAD_CLIP_NORM)
@@ -723,10 +760,14 @@ def main():
         logging.info(f"  GPUs: {world_size}")
 
     # ---- Dataset ----
+    load_signal = args["input_mode"] in {"dual", "signal"}
+    load_image = args["input_mode"] in {"dual", "image"}
     train_dataset = ECGMultiModalDataset(
         JSONL_PATH,
         IMAGE_ROOT,
         is_train=True,
+        load_signal=load_signal,
+        load_image=load_image,
         use_signal_augmentation=not args.get("no_signal_augmentation", False),
         use_baseline_wander=USE_BASELINE_WANDER,
         use_cutmix=args.get("use_cutmix", False),
@@ -736,6 +777,8 @@ def main():
         JSONL_PATH,
         IMAGE_ROOT,
         is_train=False,
+        load_signal=load_signal,
+        load_image=load_image,
         use_signal_augmentation=False,
     )
     head_subtasks = build_head_subtasks(train_dataset.vocab, DATA_VERSION)
@@ -880,9 +923,20 @@ def main():
         logging.info(f"  Static class weights: {static_class_weights is not None}")
 
     # ---- Optimizer ----
-    # Include both model and loss_computer parameters
-    all_params = list(model.parameters()) + list(loss_computer.parameters())
-    optimizer = torch.optim.AdamW(all_params, lr=args["lr"], weight_decay=args["wd"])
+    # 预训练编码器使用更小学习率，新训练模块和动态损失参数使用主学习率。
+    param_groups, n_other_params, n_encoder_params = build_optimizer_param_groups(
+        model,
+        loss_computer,
+        args["lr"],
+        args["encoder_lr_scale"],
+    )
+    optimizer = torch.optim.AdamW(param_groups, lr=args["lr"], weight_decay=args["wd"])
+    if rank == 0:
+        logging.info(
+            f"Optimizer groups: new_modules={n_other_params:,} params lr={args['lr']:.2e}; "
+            f"pretrained_encoders={n_encoder_params:,} params "
+            f"lr={args['lr'] * args['encoder_lr_scale']:.2e}"
+        )
     scaler = torch.amp.GradScaler("cuda", enabled=args["amp"])
     total_steps = args["epochs"] * len(train_loader)
 
