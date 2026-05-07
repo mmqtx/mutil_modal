@@ -201,6 +201,20 @@ def classification_report(cm, class_names):
     return report
 
 
+def load_thresholds(path):
+    """读取验证集阈值校准结果，返回 task_name -> threshold。"""
+    if not path:
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    thresholds = payload.get("thresholds", payload)
+    return {
+        task_name: float(values["best"]["threshold"])
+        for task_name, values in thresholds.items()
+        if isinstance(values, dict) and "best" in values and "threshold" in values["best"]
+    }
+
+
 def print_report(report, class_names):
     """Pretty print classification report."""
     print(f"  {'':>20s} {'precision':>10s} {'recall':>10s} {'f1-score':>10s} {'support':>10s}")
@@ -376,6 +390,8 @@ Examples:
     parser.add_argument("--fusion-type", type=str, default=FUSION_TYPE,
                         choices=["cross_attention", "late_concat"],
                         help="融合方式，需要和训练该 checkpoint 时的结构保持一致")
+    parser.add_argument("--thresholds", type=str, default=None,
+                        help="验证集校准得到的 thresholds_val.json；仅作用于二分类任务")
     args = parser.parse_args()
 
     # Auto-detect output directory from checkpoint path
@@ -448,6 +464,9 @@ Examples:
     # Evaluate
     print("Running evaluation...")
     all_logits, all_labels = evaluate(model, eval_loader, vocab, args.device, input_mode=args.input_mode)
+    calibrated_thresholds = load_thresholds(args.thresholds)
+    if calibrated_thresholds:
+        print(f"Using calibrated thresholds: {args.thresholds}")
 
     # Generate reports
     print(f"\n{'=' * 70}")
@@ -473,6 +492,13 @@ Examples:
         ("qt_electrolytes.qt_status", "qt_status", "qt_electrolytes"),
         ("summary.is_abnormal", "is_abnormal", "summary"),
     ]
+    if DATA_VERSION == "v4":
+        mc_tasks.extend([
+            ("ischemia_infarct.st_elevation_present", "binary", "ischemia_infarct"),
+            ("ischemia_infarct.st_depression_present", "binary", "ischemia_infarct"),
+            ("ischemia_infarct.t_wave_abnormal", "binary", "ischemia_infarct"),
+            ("ischemia_infarct.q_wave_present", "binary", "ischemia_infarct"),
+        ])
 
     for logit_key, vocab_key, group in mc_tasks:
         if logit_key not in all_logits:
@@ -481,10 +507,15 @@ Examples:
         logits = all_logits[logit_key]
         labels = all_labels[logit_key]
 
-        pred = logits.argmax(dim=-1).numpy()
+        threshold = calibrated_thresholds.get(logit_key)
+        if threshold is not None and logits.size(-1) == 2:
+            prob_pos = torch.softmax(logits, dim=-1)[:, 1]
+            pred = (prob_pos >= threshold).long().numpy()
+        else:
+            pred = logits.argmax(dim=-1).numpy()
 
         # Get class names
-        if vocab_key in ("lvh_binary", "rvh_binary"):
+        if vocab_key in ("lvh_binary", "rvh_binary", "binary"):
             class_names = ["0", "1"]
         elif vocab_key == "is_abnormal":
             class_names = ["Normal", "Abnormal"]
@@ -518,6 +549,7 @@ Examples:
             "weighted_f1": report["weighted_avg"]["f1-score"],
             "confusion_matrix": cm.tolist(),
             "class_names": class_names,
+            "threshold": threshold,
             "per_class": {n: report[n] for n in class_names},
         }
 
@@ -662,6 +694,7 @@ Examples:
         "checkpoint": args.checkpoint,
         "input_mode": args.input_mode,
         "fusion_type": args.fusion_type,
+        "thresholds": args.thresholds,
         "results": results,
     }
     json_path = os.path.join(save_dir, "eval_results.json")

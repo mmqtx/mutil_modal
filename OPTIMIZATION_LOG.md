@@ -77,4 +77,26 @@
 
 ### 提交记录
 
-- 待提交 - `docs: record v4 dual cross experiment launch`
+- `d1cec5d` - `docs: record v4 dual cross experiment launch`
+
+### 中断恢复与评估修正
+
+- 服务器因 `/home` 空间不足中断后，确认 `v4_dual_cross` 训练进程已退出，日志停在 epoch 6；最佳 checkpoint 来自 epoch 5，验证集 macro-F1 为 0.7668。
+- 使用 `outputs/v4_dual_cross/20260507_162349/checkpoints/best.pt` 做完整 test 评估，发现离线评估脚本漏报 v4 的 4 个 `ischemia_infarct` 二分类任务。
+- 修复 `scripts/evaluate.py`，将 v4 缺血/梗死 4 个二分类任务纳入离线评估报告。
+- 为 `scripts/evaluate.py` 新增 `--thresholds` 参数，可加载 `thresholds_val.json` 并对二分类任务应用验证集校准阈值。
+- 使用未校准阈值的完整 15 任务 test 结果：
+  - Overall Macro-F1：0.7779
+  - 主要弱项：`voltage.rvh` 0.6189、`conduction_axis.pr_status` 0.6757、`qt_electrolytes.qt_status` 0.6868、`ischemia_infarct.st_elevation_present` 0.7031、`conduction_axis.conduction_status` 0.7044。
+- 使用验证集阈值校准后，完整 15 任务 test Overall Macro-F1 提升到 0.7831；主要改善来自 `voltage.rvh`、`qt_electrolytes.qt_status`、`ischemia_infarct.st_depression_present` 和 `ischemia_infarct.t_wave_abnormal`。
+
+### 验证结果
+
+- `conda run -n pytorch python -m py_compile config.py data/*.py models/*.py scripts/*.py`：通过。
+- `python scripts/evaluate.py --checkpoint outputs/v4_dual_cross/20260507_162349/checkpoints/best.pt --split test --output-dir outputs/v4_dual_cross/20260507_162349/evaluation_test_full_v4`：通过，生成 15 任务完整评估。
+- `python scripts/calibrate_thresholds.py --checkpoint outputs/v4_dual_cross/20260507_162349/checkpoints/best.pt --objective macro_f1`：通过，生成 `thresholds_val.json`。
+- `python scripts/evaluate.py --checkpoint outputs/v4_dual_cross/20260507_162349/checkpoints/best.pt --split test --thresholds outputs/v4_dual_cross/20260507_162349/thresholds_val.json --output-dir outputs/v4_dual_cross/20260507_162349/evaluation_test_full_v4_thresholded`：通过。
+
+### 提交记录
+
+- 待提交 - `fix: include v4 ischemia tasks in evaluation`

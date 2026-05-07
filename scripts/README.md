@@ -64,6 +64,7 @@ python evaluate.py --checkpoint outputs/ecg_diag/<timestamp>/checkpoints/best.pt
 - `--output-dir`: 输出目录 (默认: 自动检测)
 - `--input-mode`: 评估时输入模态消融，可用于同一个 checkpoint 比较信号/图像贡献
 - `--fusion-type`: 融合结构，需要和训练 checkpoint 时保持一致
+- `--thresholds`: 验证集校准得到的 `thresholds_val.json`，仅作用于二分类任务
 
 **输出:**
 - `evaluation_<split>/` - 评估结果目录
@@ -196,6 +197,11 @@ tensorboard --logdir outputs/ecg_diag/<timestamp>/tensorboard
 python evaluate.py --checkpoint outputs/ecg_diag/<timestamp>/checkpoints/best.pt --split train
 python evaluate.py --checkpoint outputs/ecg_diag/<timestamp>/checkpoints/best.pt --split val
 python evaluate.py --checkpoint outputs/ecg_diag/<timestamp>/checkpoints/best.pt --split test
+
+# 使用验证集阈值校准结果评估二分类任务
+python evaluate.py --checkpoint outputs/ecg_diag/<timestamp>/checkpoints/best.pt \
+  --split test \
+  --thresholds outputs/ecg_diag/<timestamp>/thresholds_val.json
 ```
 
 ### 调试训练
