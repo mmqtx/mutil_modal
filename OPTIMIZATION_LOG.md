@@ -237,4 +237,31 @@
 
 ### 提交记录
 
-- 待提交 - `feat: support model-only resume for finetuning`
+- `a6b5a3e` - `feat: support model-only resume for finetuning`
+
+## 2026-05-07 双模态轻权重微调复盘
+
+### 实验结论
+
+- 启动 `v4_dual_light_weighted_ft`：从当前最佳双模态 checkpoint 只加载模型权重，重新初始化 optimizer/scheduler，使用更轻的弱任务损失权重做短程微调。
+- 验证集 macro-F1：
+  - epoch 0：0.7614
+  - epoch 1：0.7641
+  - epoch 2：0.7688
+  - epoch 3：0.7711
+  - epoch 4：0.7713
+- 测试集未校准 macro-F1：0.7691，低于原始双模态模型未校准测试 macro-F1 0.7834。
+- 结论：轻权重微调虽然接近原始验证峰值 0.7714，但测试集退化明显，说明当前弱任务加权策略没有带来稳定收益。
+- 已删除该实验的 `best.pt`，保留训练日志、划分文件和 TensorBoard 事件用于复盘。
+
+### 当前最佳方案
+
+- 当前最佳仍为 `v4_dual_cross_resume/20260507_175837`。
+- 测试集未校准 macro-F1：0.7834。
+- 测试集阈值校准 macro-F1：0.7890。
+- 当前阶段不继续沿“加大弱任务 loss 权重”的方向投入训练资源，转向低成本的阈值校准、评估策略和更稳健的模型结构消融。
+
+### 下一步
+
+- 先基于当前最佳 checkpoint 做不同阈值目标的后处理对比，确认是否能在不重新训练的情况下继续提升 test macro-F1。
+- 若后处理收益有限，再启动新的模型结构实验，优先尝试 late-concat/轻量门控融合，而不是继续直接调高弱任务 loss。
