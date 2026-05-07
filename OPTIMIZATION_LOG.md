@@ -10,6 +10,7 @@
 - 保留 `pretrained/README.md` 作为 `pretrained/` 目录下唯一跟踪文件，用来记录需要手动准备的外部权重。
 - 新增 `DEVELOPMENT_RULES.md`，作为后续修改必须遵守的项目级协作规则。
 - 修正规则文档中的结构化数据校验策略：结构化数据应先集中优化并冻结成稳定版本，后续模型结构、loss 和训练策略优化都固定在该数据版本上进行；不要求每次训练前重复校验结构化数据。
+- 新增 `docs/data_analysis_v4/v4_vs_v5_candidate_analysis.md`，系统比较 v4 主标签和 v5 候选辅助标签思路，结论是继续使用 v4 作为主数据版本，v5 只作为后续辅助任务候选。
 
 ### 训练管线修复
 
@@ -39,4 +40,5 @@
 - `266f93c` - `feat: add structured label validation and prediction docs`
 - `575e053` - `docs: add project development rules`
 - `3005bd0` - `docs: localize project rules and optimization log`
-- 待提交 - `docs: clarify structured data versioning rules`
+- `ca6b9d8` - `docs: clarify structured data versioning rules`
+- 待提交 - `docs: add v4 and v5 candidate data analysis`
