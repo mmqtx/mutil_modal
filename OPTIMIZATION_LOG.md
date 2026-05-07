@@ -63,4 +63,18 @@
 
 ### 提交记录
 
-- 待提交 - `feat: add multimodal ablation and threshold calibration`
+- `1298ebc` - `feat: add multimodal ablation and threshold calibration`
+
+### 实验启动记录
+
+- 已启动完整主实验 `v4_dual_cross`：
+  - 启动时间：2026-05-07 16:23
+  - 命令：`torchrun --standalone --nproc_per_node=2 scripts/train.py --name v4_dual_cross`
+  - run 目录：`outputs/v4_dual_cross/20260507_162349`
+  - launcher 日志：`outputs/experiment_launcher/v4_dual_cross_20260507_162343.log`
+  - 配置：v4 数据，双模态输入，`cross_attention` 融合，默认冻结信号/图像 encoder，默认关闭 CutMix 和 head contrastive，启用静态类别均衡 focal 权重。
+  - 启动检查：成功加载 30000 条记录，train/val/test 为 21000/3000/6000；成功加载本地 CLIP 和 GEM 预训练权重；训练 step 已开始，未出现 OOM。
+
+### 提交记录
+
+- 待提交 - `docs: record v4 dual cross experiment launch`
