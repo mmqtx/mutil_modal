@@ -163,11 +163,11 @@ FOCAL_GAMMA    = 3.0       # focusing parameter (增大以更关注难样本/稀
 # 子任务级损失权重，默认不启用；用于针对长期弱项做温和补偿。
 USE_SUBTASK_LOSS_WEIGHTS = False
 SUBTASK_LOSS_WEIGHTS = {
-    "voltage.rvh": 1.8,
-    "conduction_axis.pr_status": 1.4,
-    "qt_electrolytes.qt_status": 1.4,
-    "ischemia_infarct.st_elevation_present": 1.3,
-    "conduction_axis.conduction_status": 1.2,
+    "voltage.rvh": 1.3,
+    "conduction_axis.pr_status": 1.15,
+    "qt_electrolytes.qt_status": 1.15,
+    "ischemia_infarct.st_elevation_present": 1.1,
+    "conduction_axis.conduction_status": 1.1,
 }
 
 # 信号-图像全局对比学习 (InfoNCE) / Signal-Image Global Contrastive Learning

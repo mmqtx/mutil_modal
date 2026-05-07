@@ -201,4 +201,40 @@
 
 ### 提交记录
 
-- 待提交 - `feat: add optional subtask loss weighting`
+- `da2bc7a` - `feat: add optional subtask loss weighting`
+
+## 2026-05-07 双模态弱任务加权从头训练复盘
+
+### 实验结论
+
+- 启动 `v4_dual_task_weighted`：双模态输入，冻结信号和图像 encoder，从头训练融合层/分类头，并启用较强弱任务损失权重。
+- 验证集 macro-F1：
+  - epoch 0：0.5302
+  - epoch 1：0.7263
+  - epoch 2：0.7454
+  - epoch 3：0.7486
+- 结论：从头训练时直接加强弱任务 loss 会拖慢整体收敛，且没有接近当前双模态最佳验证 macro-F1 0.7714。
+- 已停止实验并删除无用 checkpoint，保留日志用于复盘。
+
+### 方法修正
+
+- 将弱任务损失权重改为更温和的设置：
+  - `voltage.rvh`: 1.3
+  - `conduction_axis.pr_status`: 1.15
+  - `qt_electrolytes.qt_status`: 1.15
+  - `ischemia_infarct.st_elevation_present`: 1.1
+  - `conduction_axis.conduction_status`: 1.1
+- 新增 `--resume-model-only`：只从 checkpoint 加载模型和 loss 状态，重新初始化 optimizer/scheduler，用于从当前最佳模型做短程微调。
+
+### 验证结果
+
+- `conda run -n pytorch python -m py_compile config.py scripts/train.py models/losses.py`：通过。
+
+### 下一步
+
+- 从当前最佳双模态 checkpoint 启动 `v4_dual_light_weighted_ft`，使用轻权重和 fresh optimizer 做短程微调。
+- 若验证 macro-F1 超过 0.7714，再进行 test 和阈值校准；否则停止并删除 checkpoint。
+
+### 提交记录
+
+- 待提交 - `feat: support model-only resume for finetuning`

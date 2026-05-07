@@ -696,6 +696,8 @@ def main():
     parser.add_argument("--head-contrastive-temp", type=float, default=HEAD_CONTRASTIVE_TEMP,
                         help="分类头对比学习温度参数 / Temperature for head contrastive loss")
     parser.add_argument("--resume", type=str, default=None)
+    parser.add_argument("--resume-model-only", action="store_true", default=False,
+                        help="只从 checkpoint 加载模型/loss 状态，重新初始化 optimizer/scheduler 做短程微调")
     parser.add_argument("--pretrained-gem", type=str, default=GEM_PRETRAINED_PATH,
                         help="Path to GEM pretrained checkpoint (cpt_wfep_epoch_20.pt)")
     parser.add_argument("--pretrained-clip", type=str, default=CLIP_VIT_PATH,
@@ -982,12 +984,19 @@ def main():
     if args["resume"]:
         ckpt = torch.load(args["resume"], map_location=f"cuda:{rank}")
         model.module.load_state_dict(ckpt["model"])
-        optimizer.load_state_dict(ckpt["optimizer"])
-        scheduler.load_state_dict(ckpt["scheduler"])
-        start_epoch = ckpt["epoch"] + 1
         # Also restore loss_computer state if available
         if "loss_computer" in ckpt:
             loss_computer.module.load_state_dict(ckpt["loss_computer"], strict=False)
+        if args.get("resume_model_only", False):
+            if rank == 0:
+                logging.info(
+                    f"Loaded model/loss state from {args['resume']} "
+                    "with fresh optimizer and scheduler"
+                )
+        else:
+            optimizer.load_state_dict(ckpt["optimizer"])
+            scheduler.load_state_dict(ckpt["scheduler"])
+            start_epoch = ckpt["epoch"] + 1
 
     # ---- Loop ----
     best_metric = 0.0  # Track best Macro-F1 mean instead of loss
