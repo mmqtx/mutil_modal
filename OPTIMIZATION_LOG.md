@@ -309,3 +309,27 @@
 ### 下一步
 
 - 检查当前 loss 曲线中对比学习项的作用；`late_concat` 和 cross-attention 都启用了 `contrastive_weight=0.05`，下一轮优先尝试关闭或降低对比损失，验证它是否在分类主任务上形成干扰。
+
+## 2026-05-07 双模态 cross-attention 关闭全局对比损失实验复盘
+
+### 实验结论
+
+- 启动 `v4_dual_cross_no_contrastive`：双模态输入，cross-attention 融合，冻结两个预训练 encoder，设置 `--contrastive-weight 0.0`。
+- 运行目录：`/data/ljq24358/ecg_experiments/mutil_modal_outputs/v4_dual_cross_no_contrastive/20260507_231856`。
+- 验证集 macro-F1：
+  - epoch 0：0.5361
+  - epoch 1：0.7295
+  - epoch 2：0.7460
+  - epoch 3：0.7453
+- 结论：关闭全局对比损失后，验证集 macro-F1 在 epoch 2 后停滞并回落，明显低于当前最佳 cross-attention 验证 macro-F1 0.7714。
+- 已停止该实验并删除无用 `best.pt`，保留日志、划分文件和 TensorBoard 事件用于复盘。
+
+### 当前判断
+
+- 全局对比损失虽然不是最终分类目标，但在当前双模态训练中有稳定融合表示的作用，直接关闭会损害分类主任务。
+- 当前保留 `contrastive_weight=0.05` 更稳；后续若继续探索，只考虑小幅降低到 0.02 或做 warmup/decay，而不是直接置零。
+
+### 下一步
+
+- 暂停继续堆训练实验，先整理当前模型消融结论：当前最佳仍为 `cross_attention + contrastive_weight=0.05 + macro_f1 阈值校准`。
+- 下一轮方法优化优先考虑在当前最佳 checkpoint 上做分类阈值、报告模板和少量结构增强，而不是继续大范围试错。
