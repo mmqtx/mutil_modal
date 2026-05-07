@@ -120,3 +120,28 @@ class CrossAttentionFusion(nn.Module):
         combined = torch.cat([sig.squeeze(1), img.squeeze(1)], dim=-1)  # (B, 2D)
         fused = self.out_norm(self.merge(combined))                      # (B, D)
         return fused
+
+
+class LateConcatFusion(nn.Module):
+    """简单后融合基线：拼接两模态特征后用 MLP 压回统一维度。
+
+    这个模块用于和 cross-attention 做消融对比。如果它能达到接近甚至更好的
+    结果，说明当前数据规模下简单融合可能更稳；如果明显更差，则说明交叉注意力
+    确实带来了有效的模态交互。
+    """
+
+    def __init__(self, dim: int, mlp_ratio: float = 2.0, dropout: float = 0.1):
+        super().__init__()
+        hidden_dim = int(dim * mlp_ratio)
+        self.merge = nn.Sequential(
+            nn.Linear(dim * 2, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, dim),
+            nn.Dropout(dropout),
+        )
+        self.out_norm = nn.LayerNorm(dim)
+
+    def forward(self, sig_feat: torch.Tensor, img_feat: torch.Tensor) -> torch.Tensor:
+        combined = torch.cat([sig_feat, img_feat], dim=-1)
+        return self.out_norm(self.merge(combined))

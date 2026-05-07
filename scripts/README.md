@@ -23,8 +23,12 @@ torchrun --nproc_per_node=2 train.py --epochs 50 --batch-size 64
 **关键参数:**
 - `--epochs`: 训练轮数 (默认: 30)
 - `--batch-size`: 批量大小 (默认: 128)
-- `--lr`: 学习率 (默认: 2e-4)
-- `--contrastive-weight`: 对比学习权重 (默认: 0.1)
+- `--lr`: 学习率 (默认: 1e-4)
+- `--contrastive-weight`: 信号-图像全局对比学习权重 (默认: 0.05)
+- `--input-mode`: 输入模态消融，`dual`=信号+图像，`signal`=只用信号，`image`=只用图像
+- `--fusion-type`: 融合方式，`cross_attention`=交叉注意力，`late_concat`=简单后融合
+- `--modality-dropout-prob`: 训练时随机丢弃一个模态的概率，只在 `dual` 模式生效
+- `--use-cutmix`: 开启信号 CutMix，默认关闭
 - `--resume`: 从检查点恢复训练
 
 **输出:**
@@ -58,12 +62,34 @@ python evaluate.py --checkpoint outputs/ecg_diag/<timestamp>/checkpoints/best.pt
 - `--split`: 数据集选择 {train,val,test} (默认: test)
 - `--batch-size`: 批量大小 (默认: 128)
 - `--output-dir`: 输出目录 (默认: 自动检测)
+- `--input-mode`: 评估时输入模态消融，可用于同一个 checkpoint 比较信号/图像贡献
+- `--fusion-type`: 融合结构，需要和训练 checkpoint 时保持一致
 
 **输出:**
 - `evaluation_<split>/` - 评估结果目录
   - `eval_results.json` - JSON格式详细指标
   - `summary.png` - 所有任务的汇总图
   - `cm_*.png` - 各任务的混淆矩阵图
+
+---
+
+### calibrate_thresholds.py - 验证集阈值校准
+
+对 v4 中的二分类任务在验证集上搜索正类概率阈值，适合用于改善 RVH、缺血相关任务这类少数类召回。
+
+**用法:**
+```bash
+python scripts/calibrate_thresholds.py \
+  --checkpoint outputs/ecg_diag/<timestamp>/checkpoints/best.pt
+
+# 如果更关注阳性少数类召回和F1
+python scripts/calibrate_thresholds.py \
+  --checkpoint outputs/ecg_diag/<timestamp>/checkpoints/best.pt \
+  --objective positive_f1
+```
+
+**输出:**
+- `thresholds_val.json` - 每个二分类任务的 0.5 默认指标、最佳阈值、阳性比例和验证集 F1
 
 ---
 
@@ -179,4 +205,19 @@ torchrun --nproc_per_node=2 train.py --batch-size 16 --epochs 1
 
 # 检查梯度
 torchrun --nproc_per_node=2 train.py --batch-size 32 --amp
+```
+
+### 建议的第一轮模型实验顺序
+```bash
+# 1. 主实验：双模态 + 交叉注意力
+torchrun --nproc_per_node=2 scripts/train.py --name v4_dual_cross
+
+# 2. 信号单模态消融
+torchrun --nproc_per_node=2 scripts/train.py --name v4_signal_only --input-mode signal
+
+# 3. 图像单模态消融
+torchrun --nproc_per_node=2 scripts/train.py --name v4_image_only --input-mode image
+
+# 4. 简单后融合消融
+torchrun --nproc_per_node=2 scripts/train.py --name v4_dual_late_concat --fusion-type late_concat
 ```

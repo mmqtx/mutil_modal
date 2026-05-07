@@ -425,6 +425,7 @@ def train_one_epoch(model, loader, optimizer, scaler, scheduler, epoch, rank, ar
                 image,
                 return_head_features=return_head_features,
                 modality_dropout_prob=args.get("modality_dropout_prob", 0.0),
+                input_mode=args.get("input_mode", INPUT_MODE),
             )
             logits = out["logits"]
             aux = out["aux_losses"]
@@ -559,7 +560,7 @@ def validate(model, loader, rank, args, loss_computer=None):
         image = batch["image"].cuda(rank, non_blocking=True)
         labels = batch["labels"]
 
-        out = model(signal, image)
+        out = model(signal, image, input_mode=args.get("input_mode", INPUT_MODE))
         logits = out["logits"]
         aux = out["aux_losses"]
 
@@ -616,6 +617,12 @@ def main():
                         help="Override config and train CLIP image encoder")
     parser.add_argument("--modality-dropout-prob", type=float, default=MODALITY_DROPOUT_PROB,
                         help="Probability of dropping exactly one modality per sample during training")
+    parser.add_argument("--input-mode", type=str, default=INPUT_MODE,
+                        choices=["dual", "signal", "image"],
+                        help="多模态输入模式：dual=信号+图像，signal=只用信号，image=只用图像")
+    parser.add_argument("--fusion-type", type=str, default=FUSION_TYPE,
+                        choices=["cross_attention", "late_concat"],
+                        help="融合方式：cross_attention=交叉注意力，late_concat=简单后融合")
     parser.add_argument("--no-signal-augmentation", action="store_true", default=False,
                         help="Disable all training-time ECG signal augmentations")
     parser.add_argument("--use-cutmix", action="store_true", default=USE_CUTMIX,
@@ -764,6 +771,8 @@ def main():
         logging.info(f"  signal_augmentation: {not args.get('no_signal_augmentation', False)}")
         logging.info(f"  use_cutmix: {args.get('use_cutmix', False)}")
         logging.info(f"  modality_dropout_prob: {args.get('modality_dropout_prob', 0.0)}")
+        logging.info(f"  input_mode: {args.get('input_mode', INPUT_MODE)}")
+        logging.info(f"  fusion_type: {args.get('fusion_type', FUSION_TYPE)}")
 
     # ---- Model ----
     model = ECGDiagModel(
@@ -785,6 +794,8 @@ def main():
         fusion_heads=NUM_HEADS,
         fusion_num_layers=FUSION_NUM_LAYERS,
         fusion_dropout=FUSION_DROPOUT,
+        fusion_type=args["fusion_type"],
+        input_mode=args["input_mode"],
         head_subtasks=head_subtasks,
         chain_attn_heads=NUM_HEADS,
         chain_attn_layers=NUM_CHAIN_LAYERS,

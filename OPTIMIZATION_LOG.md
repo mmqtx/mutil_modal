@@ -41,4 +41,26 @@
 - `575e053` - `docs: add project development rules`
 - `3005bd0` - `docs: localize project rules and optimization log`
 - `ca6b9d8` - `docs: clarify structured data versioning rules`
-- 待提交 - `docs: add v4 and v5 candidate data analysis`
+- `df56fdf` - `docs: add v4 and v5 candidate data analysis`
+
+## 2026-05-07
+
+### 模型与方法优化基础设施
+
+- 新增输入模态消融开关 `INPUT_MODE` / `--input-mode`，支持 `dual`、`signal`、`image` 三种模式，用于判断当前结果主要来自信号、图像还是两者融合。
+- 新增融合方式开关 `FUSION_TYPE` / `--fusion-type`，保留默认 `cross_attention`，并新增轻量 `late_concat` 后融合基线，用于判断复杂交叉注意力是否真的优于简单融合。
+- 修改模型前向逻辑：单模态消融时保持模型接口不变，跳过不用的 encoder 并屏蔽对应模态特征，同时自动关闭信号-图像全局对比损失，避免单模态实验被无意义的跨模态对比项干扰。
+- 同步更新训练与离线评估脚本，使训练、验证、测试和消融评估使用一致的输入模态与融合配置。
+- 新增 `scripts/calibrate_thresholds.py`，用于在验证集上为 v4 二分类任务搜索正类概率阈值，后续可重点改善 RVH、缺血相关任务等少数类的召回和 F1。
+- 更新 `scripts/README.md`，记录第一轮建议实验顺序：双模态交叉注意力、信号单模态、图像单模态、双模态简单后融合。
+
+### 验证结果
+
+- `conda run -n pytorch python -m py_compile config.py data/*.py models/*.py scripts/*.py`：通过。
+- `conda run -n pytorch python scripts/evaluate.py --help`：通过。
+- `conda run -n pytorch python scripts/calibrate_thresholds.py --help`：通过。
+- `conda run -n pytorch python scripts/train.py --help`：通过。
+
+### 提交记录
+
+- 待提交 - `feat: add multimodal ablation and threshold calibration`

@@ -108,11 +108,18 @@ def load_split_indices(path, total_size):
     return split_indices
 
 
-def load_model(checkpoint_path, head_subtasks, device="cuda:0"):
+def load_model(
+    checkpoint_path,
+    head_subtasks,
+    device="cuda:0",
+    fusion_type=FUSION_TYPE,
+    input_mode=INPUT_MODE,
+):
     """Load trained model."""
     model = ECGDiagModel(
         embed_dim=EMBED_DIM, clip_model_path=CLIP_VIT_PATH,
         fusion_dim=FUSION_DIM, fusion_heads=NUM_HEADS, fusion_num_layers=FUSION_NUM_LAYERS,
+        fusion_type=fusion_type, input_mode=input_mode,
         head_subtasks=head_subtasks,
         chain_attn_heads=NUM_HEADS, chain_attn_layers=NUM_CHAIN_LAYERS,
         uplift_hidden_dim=UPLIFT_HIDDEN_DIM, uplift_num_layers=UPLIFT_NUM_LAYERS,
@@ -258,7 +265,7 @@ def multilabel_report(y_true, y_pred, threshold=0.5):
 
 
 @torch.no_grad()
-def evaluate(model, dataloader, vocab, device="cuda:0"):
+def evaluate(model, dataloader, vocab, device="cuda:0", input_mode=INPUT_MODE):
     """Run full evaluation and collect predictions."""
     # Collect all predictions and targets
     all_logits = defaultdict(list)
@@ -269,7 +276,7 @@ def evaluate(model, dataloader, vocab, device="cuda:0"):
         image = batch["image"].to(device)
         labels = batch["labels"]
 
-        out = model(signal, image)
+        out = model(signal, image, input_mode=input_mode)
         logits = out["logits"]
 
         for logit_key, (label_key, idx, task_type) in LABEL_MAP.items():
@@ -363,6 +370,12 @@ Examples:
                         help="Output directory for results (auto-detected from checkpoint path if not set)")
     parser.add_argument("--split-indices", type=str, default=None,
                         help="Optional split_indices.json saved by training")
+    parser.add_argument("--input-mode", type=str, default=INPUT_MODE,
+                        choices=["dual", "signal", "image"],
+                        help="多模态输入模式：dual=信号+图像，signal=只用信号，image=只用图像")
+    parser.add_argument("--fusion-type", type=str, default=FUSION_TYPE,
+                        choices=["cross_attention", "late_concat"],
+                        help="融合方式，需要和训练该 checkpoint 时的结构保持一致")
     args = parser.parse_args()
 
     # Auto-detect output directory from checkpoint path
@@ -424,11 +437,17 @@ Examples:
 
     # Load model
     print(f"Loading model from {args.checkpoint}...")
-    model = load_model(args.checkpoint, head_subtasks, args.device)
+    model = load_model(
+        args.checkpoint,
+        head_subtasks,
+        args.device,
+        fusion_type=args.fusion_type,
+        input_mode=args.input_mode,
+    )
 
     # Evaluate
     print("Running evaluation...")
-    all_logits, all_labels = evaluate(model, eval_loader, vocab, args.device)
+    all_logits, all_labels = evaluate(model, eval_loader, vocab, args.device, input_mode=args.input_mode)
 
     # Generate reports
     print(f"\n{'=' * 70}")
@@ -641,6 +660,8 @@ Examples:
         "n_samples": n_samples,
         "overall_macro_f1": overall_macro_f1,
         "checkpoint": args.checkpoint,
+        "input_mode": args.input_mode,
+        "fusion_type": args.fusion_type,
         "results": results,
     }
     json_path = os.path.join(save_dir, "eval_results.json")

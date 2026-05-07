@@ -24,7 +24,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from .backbones import EcgTransformer
-from .fusion import CrossAttentionFusion
+from .fusion import CrossAttentionFusion, LateConcatFusion
 from .heads import DiagnosticChain
 
 logger = logging.getLogger(__name__)
@@ -121,6 +121,8 @@ class ECGDiagModel(nn.Module):
         fusion_heads: int = 8,
         fusion_num_layers: int = 2,
         fusion_dropout: float = 0.1,
+        fusion_type: str = "cross_attention",
+        input_mode: str = "dual",
         # Downstream
         head_subtasks: Optional[Dict[str, List[Tuple[str, int, str]]]] = None,
         chain_attn_heads: int = 8,
@@ -140,8 +142,14 @@ class ECGDiagModel(nn.Module):
         head_contrastive_temp: float = 0.1,
     ):
         super().__init__()
+        if fusion_type not in {"cross_attention", "late_concat"}:
+            raise ValueError(f"Unsupported fusion_type: {fusion_type}")
+        if input_mode not in {"dual", "signal", "image"}:
+            raise ValueError(f"Unsupported input_mode: {input_mode}")
         self.embed_dim = embed_dim
         self.fusion_dim = fusion_dim
+        self.fusion_type = fusion_type
+        self.input_mode = input_mode
 
         # ---- Signal backbone (GEM EcgTransformer) ----
         self.signal_backbone = EcgTransformer(
@@ -163,6 +171,7 @@ class ECGDiagModel(nn.Module):
         if freeze_image_encoder:
             self.image_backbone.lock()
         image_hidden = self.image_backbone.hidden_size  # 1024 for ViT-L/14
+        self.image_hidden = image_hidden
 
         # ---- Uplift projections: signal/image → fusion_dim ----
         self.signal_uplift = _build_mlp(
@@ -172,11 +181,14 @@ class ECGDiagModel(nn.Module):
             image_hidden, fusion_dim, uplift_hidden_dim, uplift_num_layers,
         )
 
-        # ---- Multi-layer cross-attention fusion ----
-        self.fusion = CrossAttentionFusion(
-            dim=fusion_dim, num_heads=fusion_heads,
-            num_layers=fusion_num_layers, dropout=fusion_dropout,
-        )
+        # ---- Multimodal fusion / 多模态融合 ----
+        if fusion_type == "cross_attention":
+            self.fusion = CrossAttentionFusion(
+                dim=fusion_dim, num_heads=fusion_heads,
+                num_layers=fusion_num_layers, dropout=fusion_dropout,
+            )
+        else:
+            self.fusion = LateConcatFusion(dim=fusion_dim, dropout=fusion_dropout)
 
         # ---- Diagnostic chain (all 6 steps, including ischemia) ----
         self.chain = DiagnosticChain(
@@ -211,12 +223,14 @@ class ECGDiagModel(nn.Module):
         image: torch.Tensor,
         return_head_features: bool = False,
         modality_dropout_prob: float = 0.0,
+        input_mode: Optional[str] = None,
     ) -> Dict[str, torch.Tensor]:
         """
         Args:
             signal: (B, 12, 5000) ECG signal
             image: (B, 3, 336, 336) ECG image
             return_head_features: 是否返回每个头的特征（用于对比学习）
+            input_mode: dual/signal/image，用于模态消融实验
 
         Returns:
             dict with keys:
@@ -225,16 +239,33 @@ class ECGDiagModel(nn.Module):
                 - "log_vars": (12,) tensor for adaptive weighting
                 - "head_features": (可选) {head_name: (B, D)} 每个头的特征
         """
-        # Backbone features
-        sig_feat = self.signal_backbone(signal)    # (B, 512)
-        img_feat = self.image_backbone(image)      # (B, 1024)
+        active_mode = input_mode or self.input_mode
+        if active_mode not in {"dual", "signal", "image"}:
+            raise ValueError(f"Unsupported input_mode: {active_mode}")
+
+        # Backbone features。单模态消融时跳过不用的 encoder，节省显存和时间。
+        batch_size = signal.size(0)
+        if active_mode in {"dual", "signal"}:
+            sig_feat = self.signal_backbone(signal)    # (B, 512)
+        else:
+            sig_feat = torch.zeros(batch_size, self.embed_dim, device=image.device, dtype=image.dtype)
+
+        if active_mode in {"dual", "image"}:
+            img_feat = self.image_backbone(image)      # (B, 1024)
+        else:
+            img_feat = torch.zeros(batch_size, self.image_hidden, device=signal.device, dtype=signal.dtype)
 
         # Contrastive alignment
         sig_proj = self.sig_proj_head(sig_feat)    # (B, 256)
         img_proj = self.img_proj_head(img_feat)    # (B, 256)
-        contrastive_loss = self._contrastive_loss(sig_proj, img_proj)
+        if active_mode == "dual":
+            contrastive_loss = self._contrastive_loss(sig_proj, img_proj)
+        else:
+            contrastive_loss = torch.tensor(0.0, device=sig_feat.device)
 
-        if self.training and modality_dropout_prob > 0:
+        sig_feat, img_feat = self._apply_input_mode(sig_feat, img_feat, active_mode)
+
+        if self.training and active_mode == "dual" and modality_dropout_prob > 0:
             sig_feat, img_feat = self._apply_modality_dropout(
                 sig_feat, img_feat, modality_dropout_prob
             )
@@ -272,6 +303,21 @@ class ECGDiagModel(nn.Module):
         labels = torch.arange(B, device=sig_feat.device)
         loss = (F.cross_entropy(sim, labels) + F.cross_entropy(sim.t(), labels)) / 2.0
         return loss
+
+    def _apply_input_mode(
+        self,
+        sig_feat: torch.Tensor,
+        img_feat: torch.Tensor,
+        input_mode: str,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """根据输入模态开关做消融，保持后续融合模块接口不变。"""
+        if input_mode == "dual":
+            return sig_feat, img_feat
+        if input_mode == "signal":
+            return sig_feat, torch.zeros_like(img_feat)
+        if input_mode == "image":
+            return torch.zeros_like(sig_feat), img_feat
+        raise ValueError(f"Unsupported input_mode: {input_mode}")
 
     def _apply_modality_dropout(
         self,
