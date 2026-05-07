@@ -284,3 +284,28 @@
 
 - 启动 `late_concat` 双模态融合实验，仍冻结两个预训练 encoder，只训练轻量融合层和分类头。
 - 若 `late_concat` 验证集明显低于当前最佳 0.7714，则及时停止并删除无用 checkpoint。
+
+## 2026-05-07 双模态 late-concat 融合实验复盘
+
+### 实验结论
+
+- 启动 `v4_dual_late_concat`：双模态输入，冻结 GEM 信号 encoder 和 CLIP 图像 encoder，只训练 late-concat 融合层、投影层、分类头和动态损失参数。
+- 运行目录：`/data/ljq24358/ecg_experiments/mutil_modal_outputs/v4_dual_late_concat/20260507_224817`。
+- 验证集 macro-F1：
+  - epoch 0：0.5153
+  - epoch 1：0.7265
+  - epoch 2：0.7531
+  - epoch 3：0.7618
+  - epoch 4：0.7592
+  - epoch 5：0.7620
+- 结论：late-concat 能正常学习，但峰值 0.7620 明显低于当前 cross-attention 最佳验证 macro-F1 0.7714。
+- 已停止该实验并删除无用 `best.pt`，保留日志、划分文件和 TensorBoard 事件用于复盘。
+
+### 当前判断
+
+- 简单拼接融合不足以替代 cross-attention，说明当前任务确实需要信号特征和图像特征之间的交互建模。
+- 后续结构优化应保留跨模态交互，但控制复杂度，例如轻量门控、残差融合或减少对比损失干扰。
+
+### 下一步
+
+- 检查当前 loss 曲线中对比学习项的作用；`late_concat` 和 cross-attention 都启用了 `contrastive_weight=0.05`，下一轮优先尝试关闭或降低对比损失，验证它是否在分类主任务上形成干扰。
