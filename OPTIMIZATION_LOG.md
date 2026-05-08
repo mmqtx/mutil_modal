@@ -333,3 +333,27 @@
 
 - 暂停继续堆训练实验，先整理当前模型消融结论：当前最佳仍为 `cross_attention + contrastive_weight=0.05 + macro_f1 阈值校准`。
 - 下一轮方法优化优先考虑在当前最佳 checkpoint 上做分类阈值、报告模板和少量结构增强，而不是继续大范围试错。
+
+## 2026-05-08 新增门控残差交叉融合
+
+### 改动内容
+
+- 新增 `GatedCrossAttentionFusion`，在原有 cross-attention 交互分支之外，加入原始 signal/image 特征的残差融合分支。
+- 门控网络按样本输出融合权重，自适应决定更相信 cross-attention 特征还是残差信息。
+- `scripts/train.py` 新增 `--fusion-type gated_cross_attention` 选项。
+- 默认配置仍保持 `FUSION_TYPE = "cross_attention"`，不改变当前最佳基线。
+
+### 设计原因
+
+- `late_concat` 明显弱于 `cross_attention`，说明跨模态交互是有价值的。
+- 直接关闭全局对比损失也退化，说明当前融合表示需要稳定约束。
+- 因此下一步不推翻已有结构，而是在 cross-attention 上加入轻量残差门控，尝试提升泛化稳定性。
+
+### 验证结果
+
+- `/home/ljq24358/anaconda3/envs/pytorch/bin/python -m py_compile config.py models/fusion.py models/model.py scripts/train.py`：通过。
+
+### 下一步
+
+- 启动 `v4_dual_gated_cross` 实验，双模态输入，冻结两个 encoder，保留 `contrastive_weight=0.05`。
+- 若早期验证 macro-F1 未超过或接近当前最佳 0.7714，则及时停止并删除无收益 checkpoint。

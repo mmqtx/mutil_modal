@@ -676,8 +676,8 @@ def main():
                         choices=["dual", "signal", "image"],
                         help="多模态输入模式：dual=信号+图像，signal=只用信号，image=只用图像")
     parser.add_argument("--fusion-type", type=str, default=FUSION_TYPE,
-                        choices=["cross_attention", "late_concat"],
-                        help="融合方式：cross_attention=交叉注意力，late_concat=简单后融合")
+                        choices=["cross_attention", "gated_cross_attention", "late_concat"],
+                        help="融合方式：cross_attention=交叉注意力，gated_cross_attention=门控残差交叉注意力，late_concat=简单后融合")
     parser.add_argument("--no-signal-augmentation", action="store_true", default=False,
                         help="Disable all training-time ECG signal augmentations")
     parser.add_argument("--use-cutmix", action="store_true", default=USE_CUTMIX,

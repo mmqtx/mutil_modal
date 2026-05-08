@@ -122,6 +122,55 @@ class CrossAttentionFusion(nn.Module):
         return fused
 
 
+class GatedCrossAttentionFusion(nn.Module):
+    """门控残差交叉融合。
+
+    保留 cross-attention 的模态交互能力，同时加入一条由原始 signal/image 特征
+    直接生成的残差融合分支。门控值按样本自适应选择更相信交互特征还是残差信息，
+    目标是在不显著增加复杂度的情况下提升泛化稳定性。
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int = 8,
+        num_layers: int = 2,
+        mlp_ratio: float = 4.0,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.cross = CrossAttentionFusion(
+            dim=dim,
+            num_heads=num_heads,
+            num_layers=num_layers,
+            mlp_ratio=mlp_ratio,
+            dropout=dropout,
+        )
+        hidden_dim = int(dim * 2)
+        self.residual_merge = nn.Sequential(
+            nn.Linear(dim * 2, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, dim),
+        )
+        self.gate = nn.Sequential(
+            nn.Linear(dim * 2, dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim, dim),
+            nn.Sigmoid(),
+        )
+        self.out_norm = nn.LayerNorm(dim)
+
+    def forward(self, sig_feat: torch.Tensor, img_feat: torch.Tensor) -> torch.Tensor:
+        combined = torch.cat([sig_feat, img_feat], dim=-1)
+        cross_fused = self.cross(sig_feat, img_feat)
+        residual_fused = self.residual_merge(combined)
+        gate = self.gate(combined)
+        fused = gate * cross_fused + (1.0 - gate) * residual_fused
+        return self.out_norm(fused)
+
+
 class LateConcatFusion(nn.Module):
     """简单后融合基线：拼接两模态特征后用 MLP 压回统一维度。
 

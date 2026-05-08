@@ -24,7 +24,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from .backbones import EcgTransformer
-from .fusion import CrossAttentionFusion, LateConcatFusion
+from .fusion import CrossAttentionFusion, GatedCrossAttentionFusion, LateConcatFusion
 from .heads import DiagnosticChain
 
 logger = logging.getLogger(__name__)
@@ -142,7 +142,7 @@ class ECGDiagModel(nn.Module):
         head_contrastive_temp: float = 0.1,
     ):
         super().__init__()
-        if fusion_type not in {"cross_attention", "late_concat"}:
+        if fusion_type not in {"cross_attention", "gated_cross_attention", "late_concat"}:
             raise ValueError(f"Unsupported fusion_type: {fusion_type}")
         if input_mode not in {"dual", "signal", "image"}:
             raise ValueError(f"Unsupported input_mode: {input_mode}")
@@ -184,6 +184,11 @@ class ECGDiagModel(nn.Module):
         # ---- Multimodal fusion / 多模态融合 ----
         if fusion_type == "cross_attention":
             self.fusion = CrossAttentionFusion(
+                dim=fusion_dim, num_heads=fusion_heads,
+                num_layers=fusion_num_layers, dropout=fusion_dropout,
+            )
+        elif fusion_type == "gated_cross_attention":
+            self.fusion = GatedCrossAttentionFusion(
                 dim=fusion_dim, num_heads=fusion_heads,
                 num_layers=fusion_num_layers, dropout=fusion_dropout,
             )
