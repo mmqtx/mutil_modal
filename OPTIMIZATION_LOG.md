@@ -418,3 +418,43 @@
 ### 提交记录
 
 - `593ba18` - `feat: add multiclass logit bias calibration`
+
+## 2026-05-11 双模态与信号模型概率集成
+
+### 实验结论
+
+- 新增 `scripts/evaluate_ensemble.py`，在验证集上为当前最佳双模态模型和 signal-only 模型按任务搜索概率融合权重；二分类任务同时搜索阈值。
+- 验证集 macro-F1：0.7902。
+- 测试集 macro-F1：0.7887，低于当前最佳 0.7890。
+- 结论：signal-only 与 dual 模型确实存在部分互补，但验证集按任务搜索存在轻微过拟合，暂不替换当前最佳方案。
+
+### 提交记录
+
+- `f0d0f8c` - `feat: add dual signal ensemble evaluation`
+
+## 2026-05-11 新增分布感知采样
+
+### 改动内容
+
+- 在 `scripts/train.py` 中新增 `WeightedDistributedSampler`，支持 DDP 下的加权有放回采样。
+- 新增训练参数：
+  - `--use-balanced-sampler`
+  - `--balanced-sampler-tasks`
+  - `--balanced-sampler-alpha`
+  - `--balanced-sampler-max-weight`
+- 默认关闭，不影响当前最佳基线。
+
+### 设计原因
+
+- 当前主要瓶颈来自类别分布不均，尤其是 `rvh`、`pr_status`、`qt_status`、`st_elevation_present` 等任务。
+- 不修改、不删除任何训练数据，只在训练采样阶段提高包含少数类样本的出现概率。
+- 相比直接加大 loss 权重，采样策略可能让模型看到更多少数类模式，减少弱任务只靠损失放大的不稳定性。
+
+### 验证结果
+
+- `/home/ljq24358/anaconda3/envs/pytorch/bin/python -m py_compile scripts/train.py scripts/evaluate_ensemble.py`：通过。
+
+### 下一步
+
+- 启动 `v4_dual_balanced_sampler`，沿用当前最佳结构：`dual + cross_attention + contrastive_weight=0.05`。
+- 若验证集 macro-F1 早期明显低于当前最佳，并且少数类没有改善，则停止并删除无收益 checkpoint。

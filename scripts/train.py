@@ -29,7 +29,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import DataLoader, DistributedSampler, Subset
+from torch.utils.data import DataLoader, DistributedSampler, Sampler, Subset
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 
@@ -341,6 +341,68 @@ def make_split_indices(total_size, seed, train_ratio, val_ratio):
     val_idx = indices[n_train:n_train + n_val]
     test_idx = indices[n_train + n_val:]
     return {"train": train_idx, "val": val_idx, "test": test_idx}
+
+
+class WeightedDistributedSampler(Sampler):
+    """DDP 兼容的加权有放回采样器。"""
+
+    def __init__(self, weights, num_replicas, rank, seed=0):
+        self.weights = torch.as_tensor(weights, dtype=torch.double)
+        self.num_replicas = num_replicas
+        self.rank = rank
+        self.seed = seed
+        self.epoch = 0
+        self.num_samples = int(np.ceil(len(self.weights) / num_replicas))
+        self.total_size = self.num_samples * num_replicas
+
+    def __iter__(self):
+        generator = torch.Generator().manual_seed(self.seed + self.epoch)
+        indices = torch.multinomial(
+            self.weights,
+            self.total_size,
+            replacement=True,
+            generator=generator,
+        ).tolist()
+        return iter(indices[self.rank:self.total_size:self.num_replicas])
+
+    def __len__(self):
+        return self.num_samples
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
+
+
+def build_balanced_sample_weights(dataset, indices, task_names, alpha=0.5, max_weight=5.0):
+    """根据少数类频次为训练样本构建采样权重，不修改原始数据。"""
+    task_names = [name.strip() for name in task_names.split(",") if name.strip()]
+    encoded = []
+    counts = {task: {} for task in task_names}
+
+    for base_idx in indices:
+        labels = dataset._encode_labels(dataset.records[base_idx]["structured_data"])
+        sample = {}
+        for task in task_names:
+            if task not in LABEL_MAP:
+                continue
+            group, idx, task_type = LABEL_MAP[task]
+            if task_type != "mc":
+                continue
+            value = int(labels[group][idx].item() if labels[group].dim() > 0 else labels[group].item())
+            sample[task] = value
+            counts[task][value] = counts[task].get(value, 0) + 1
+        encoded.append(sample)
+
+    weights = []
+    for sample in encoded:
+        task_weights = []
+        for task, value in sample.items():
+            task_counts = counts[task]
+            max_count = max(task_counts.values())
+            cls_count = max(task_counts.get(value, 1), 1)
+            task_weights.append((max_count / cls_count) ** alpha)
+        weight = float(np.mean(task_weights)) if task_weights else 1.0
+        weights.append(min(weight, max_weight))
+    return weights, counts
 
 
 def save_split_indices(split_indices, run_dir):
@@ -686,6 +748,15 @@ def main():
                         help="Disable static effective-number class weights")
     parser.add_argument("--use-subtask-loss-weights", action="store_true", default=USE_SUBTASK_LOSS_WEIGHTS,
                         help="启用 config.SUBTASK_LOSS_WEIGHTS 中的弱任务损失权重")
+    parser.add_argument("--use-balanced-sampler", action="store_true", default=False,
+                        help="启用分布感知采样，提高包含少数类样本的采样概率")
+    parser.add_argument("--balanced-sampler-tasks", type=str,
+                        default="voltage.rvh,conduction_axis.pr_status,qt_electrolytes.qt_status,ischemia_infarct.st_elevation_present,conduction_axis.conduction_status,rhythm_rate.rhythm,conduction_axis.axis",
+                        help="用于计算采样权重的子任务，逗号分隔")
+    parser.add_argument("--balanced-sampler-alpha", type=float, default=0.5,
+                        help="采样权重的类别频次指数，0=不平衡校正，1=完全反频次")
+    parser.add_argument("--balanced-sampler-max-weight", type=float, default=5.0,
+                        help="单样本最大采样权重，防止极少数类过采样过强")
     # Head-level contrastive learning (新增)
     parser.add_argument("--use-head-contrastive", action="store_true", default=USE_HEAD_CONTRASTIVE,
                         help="使用分类头级别的对比学习 / Enable head-level contrastive learning")
@@ -814,8 +885,21 @@ def main():
     val_ds = Subset(eval_dataset, split_indices["val"])
     test_ds = Subset(eval_dataset, split_indices["test"])
 
+    if args.get("use_balanced_sampler", False):
+        sample_weights, sample_counts = build_balanced_sample_weights(
+            train_dataset,
+            split_indices["train"],
+            args["balanced_sampler_tasks"],
+            alpha=args["balanced_sampler_alpha"],
+            max_weight=args["balanced_sampler_max_weight"],
+        )
+        train_sampler = WeightedDistributedSampler(sample_weights, world_size, rank, seed=SEED)
+    else:
+        sample_weights, sample_counts = None, None
+        train_sampler = DistributedSampler(train_ds)
+
     train_loader = DataLoader(train_ds, batch_size=args["batch_size"],
-                              sampler=DistributedSampler(train_ds),
+                              sampler=train_sampler,
                               num_workers=args["workers"], pin_memory=True, drop_last=True)
     # Rank 0 evaluates the full validation/test split while other ranks wait.
     val_loader = DataLoader(val_ds, batch_size=args["batch_size"],
@@ -838,6 +922,13 @@ def main():
         logging.info(f"  modality_dropout_prob: {args.get('modality_dropout_prob', 0.0)}")
         logging.info(f"  input_mode: {args.get('input_mode', INPUT_MODE)}")
         logging.info(f"  fusion_type: {args.get('fusion_type', FUSION_TYPE)}")
+        logging.info(f"  use_balanced_sampler: {args.get('use_balanced_sampler', False)}")
+        if sample_weights is not None:
+            logging.info(
+                "  balanced_sampler weights: min=%.3f mean=%.3f max=%.3f",
+                min(sample_weights), float(np.mean(sample_weights)), max(sample_weights),
+            )
+            logging.info(f"  balanced_sampler task_counts: {sample_counts}")
 
     # ---- Model ----
     model = ECGDiagModel(
