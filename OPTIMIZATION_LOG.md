@@ -357,3 +357,35 @@
 
 - 启动 `v4_dual_gated_cross` 实验，双模态输入，冻结两个 encoder，保留 `contrastive_weight=0.05`。
 - 若早期验证 macro-F1 未超过或接近当前最佳 0.7714，则及时停止并删除无收益 checkpoint。
+
+## 2026-05-11 门控残差交叉融合实验复盘
+
+### 实验结论
+
+- 检查 `v4_dual_gated_cross/20260508_233242`，该实验在中断后仍有残留训练进程。
+- 验证集 macro-F1：
+  - epoch 0：0.5306
+  - epoch 1：0.7278
+  - epoch 2：0.7523
+  - epoch 3：0.7544
+  - epoch 4：0.7534
+  - epoch 5：0.7570
+  - epoch 6：0.7578
+- 峰值 0.7578 明显低于当前最佳 cross-attention 验证 macro-F1 0.7714。
+- 已停止残留进程并删除无收益 `best.pt`，保留日志、划分文件和 TensorBoard 事件用于复盘。
+
+### 当前判断
+
+- 门控残差分支没有带来收益，反而可能增加优化难度。
+- 当前最佳仍为 `cross_attention + contrastive_weight=0.05 + macro_f1 阈值校准`，测试集阈值校准 macro-F1 为 0.7890。
+- 后续不再沿“增加融合模块复杂度”的方向优先探索。
+
+### 系统状态
+
+- `/home` 可用空间较低，约 2.9G；后续训练继续强制输出到 `/data/ljq24358/ecg_experiments`。
+- `/home/ljq24358/.cache`、`/home/ljq24358/anaconda3` 和 `/home/ljq24358/dev` 是主要占用来源；未删除任何用户文件。
+
+### 下一步
+
+- 优先做低风险优化：基于当前最佳 checkpoint 做评估侧分析、阈值/报告模板优化，或做小代码改动后再启动短程实验。
+- 若继续训练实验，先确认 `/home` 空间安全，并设置明确止损阈值。
