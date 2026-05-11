@@ -323,6 +323,24 @@ def build_optimizer_param_groups(model, loss_computer, base_lr, encoder_lr_scale
     return param_groups, n_other_params, n_encoder_params
 
 
+def freeze_for_classifier_head_tuning(model):
+    """只训练最终分类头，用于在固定多模态表征上微调类别边界。"""
+    model_for_names = model.module if isinstance(model, DDP) else model
+    trainable_prefixes = ("chain.class_heads.",)
+    trainable = 0
+    frozen = 0
+
+    for name, param in model_for_names.named_parameters():
+        should_train = name.startswith(trainable_prefixes)
+        param.requires_grad = should_train
+        if should_train:
+            trainable += param.numel()
+        else:
+            frozen += param.numel()
+
+    return trainable, frozen
+
+
 def build_subtask_loss_weights(task_config, enabled):
     """根据配置生成子任务损失权重；默认全部为 1.0。"""
     if not enabled:
@@ -771,6 +789,8 @@ def main():
     parser.add_argument("--resume", type=str, default=None)
     parser.add_argument("--resume-model-only", action="store_true", default=False,
                         help="只从 checkpoint 加载模型/loss 状态，重新初始化 optimizer/scheduler 做短程微调")
+    parser.add_argument("--train-classifier-heads-only", action="store_true", default=False,
+                        help="只训练最终分类头和动态 loss 权重，用于固定表征后的不平衡边界微调")
     parser.add_argument("--pretrained-gem", type=str, default=GEM_PRETRAINED_PATH,
                         help="Path to GEM pretrained checkpoint (cpt_wfep_epoch_20.pt)")
     parser.add_argument("--pretrained-clip", type=str, default=CLIP_VIT_PATH,
@@ -983,6 +1003,13 @@ def main():
         logging.info(f"  Download from: https://drive.google.com/drive/folders/1-0lRJy7PAMZ7bflbOszwhy3_ZwfTlGYB")
         logging.info(f"  Place at: pretrained/cpt_wfep_epoch_20.pt")
         logging.info(f"  Training with random initialization.")
+
+    if args.get("train_classifier_heads_only", False):
+        head_params, frozen_params = freeze_for_classifier_head_tuning(model)
+        if rank == 0:
+            logging.info("Classifier-head-only tuning: ENABLED")
+            logging.info(f"  trainable_head_params: {head_params:,}")
+            logging.info(f"  frozen_model_params: {frozen_params:,}")
 
     model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
 

@@ -458,3 +458,68 @@
 
 - 启动 `v4_dual_balanced_sampler`，沿用当前最佳结构：`dual + cross_attention + contrastive_weight=0.05`。
 - 若验证集 macro-F1 早期明显低于当前最佳，并且少数类没有改善，则停止并删除无收益 checkpoint。
+
+## 2026-05-11 类别不均衡训练策略复盘与分类头再平衡
+
+### 解决的问题
+
+- 数据分布长尾明显，`rvh`、`pr_status`、`qt_status`、`st_elevation_present` 等任务少数类样本偏少。
+- 不能通过删除数据、硬合并标签或强行改编码来制造均匀分布，因此本轮只在训练策略和决策边界上处理不均衡。
+
+### 实验过程
+
+- 强分布感知采样实验：
+  - run：`/data/ljq24358/ecg_experiments/mutil_modal_outputs/v4_dual_balanced_sampler/20260511_172347`
+  - 配置：`alpha=0.5`，`max_weight=5.0`，覆盖多个弱任务。
+  - 验证 macro-F1：第 3 轮最高 0.7567，第 4 轮回落到 0.7552。
+  - 结论：强采样会改善样本曝光，但整体验证指标低于当前最佳 0.7714；已停止并删除无收益 checkpoint，仅保留日志。
+- 温和分布感知采样实验：
+  - run：`/data/ljq24358/ecg_experiments/mutil_modal_outputs/v4_dual_balanced_sampler_a03/20260511_180813`
+  - 配置：只覆盖最受影响的弱任务，`alpha=0.3`，`max_weight=3.0`。
+  - 验证 macro-F1：第 2 轮 0.7507。
+  - 结论：比强采样更保守，但没有更高收益；已停止并删除无收益 checkpoint，仅保留日志。
+
+### 代码改动
+
+- `scripts/train.py` 新增 `--train-classifier-heads-only`：
+  - 只训练 `chain.class_heads` 和动态 loss 权重；
+  - 冻结 ECG/CLIP encoder、模态融合层、投影层和诊断链主体；
+  - 用于固定多模态表征后，轻量调整不平衡任务的分类边界。
+
+### 最终有效实验
+
+- run：`/data/ljq24358/ecg_experiments/mutil_modal_outputs/v4_dual_head_rebalance/20260511_184359`
+- 初始化 checkpoint：`/data/ljq24358/ecg_experiments/archived_home_outputs/v4_dual_cross_resume/20260507_175837/checkpoints/best.pt`
+- 配置：
+  - `--resume-model-only`
+  - `--train-classifier-heads-only`
+  - `--contrastive-weight 0.0`
+  - 温和分布感知采样：`alpha=0.3`，`max_weight=3.0`
+- 验证集结果：
+  - 第 0 轮 macro-F1：0.7665
+  - 第 1 轮 macro-F1：0.7689
+  - 第 2 轮 macro-F1：0.7670
+  - 第 3 轮 macro-F1：0.7677
+  - 结论：第 1 轮最好，继续训练开始过拟合，已停止训练并保留最佳 checkpoint。
+- 阈值校准：
+  - 输出：`/data/ljq24358/ecg_experiments/mutil_modal_outputs/v4_dual_head_rebalance/20260511_184359/thresholds_val.json`
+- 测试集结果：
+  - 输出目录：`/data/ljq24358/ecg_experiments/mutil_modal_outputs/v4_dual_head_rebalance/20260511_184359/evaluation_test_thresholded`
+  - test macro-F1：0.7914
+  - 超过上一版最佳测试 macro-F1 0.7890。
+
+### 当前判断
+
+- 仅靠重采样不能充分解决长尾分布问题，且容易扰动整体训练分布。
+- 当前更有效的策略是：固定已学好的多模态表征，只微调分类头，再做验证集阈值校准。
+- 新的当前最佳方案为：`dual + cross_attention + head-only rebalance + threshold calibration`，测试 macro-F1 为 0.7914。
+
+### 验证命令
+
+- `/home/ljq24358/anaconda3/envs/pytorch/bin/python -m py_compile scripts/train.py`：通过。
+- `/home/ljq24358/anaconda3/envs/pytorch/bin/python scripts/calibrate_thresholds.py ...`：通过。
+- `/home/ljq24358/anaconda3/envs/pytorch/bin/python scripts/evaluate.py ... --split test ...`：通过，test macro-F1 为 0.7914。
+
+### 提交记录
+
+- `9dcc5fe` - `feat: add classifier head rebalance tuning`
