@@ -156,7 +156,7 @@ def main():
     parser.add_argument("--input-mode", type=str, default=INPUT_MODE,
                         choices=["dual", "signal", "image"])
     parser.add_argument("--fusion-type", type=str, default=FUSION_TYPE,
-                        choices=["cross_attention", "late_concat"],
+                        choices=["cross_attention", "gated_cross_attention", "late_concat"],
                         help="必须与训练 checkpoint 的模型结构一致")
     args = parser.parse_args()
 

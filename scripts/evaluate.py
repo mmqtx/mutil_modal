@@ -215,6 +215,20 @@ def load_thresholds(path):
     }
 
 
+def load_logit_biases(path):
+    """读取验证集 logit bias 校准结果，返回 task_name -> bias tensor。"""
+    if not path:
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    biases = payload.get("logit_biases", payload.get("biases", {}))
+    return {
+        task_name: torch.tensor(values["bias"], dtype=torch.float32)
+        for task_name, values in biases.items()
+        if isinstance(values, dict) and "bias" in values
+    }
+
+
 def print_report(report, class_names):
     """Pretty print classification report."""
     print(f"  {'':>20s} {'precision':>10s} {'recall':>10s} {'f1-score':>10s} {'support':>10s}")
@@ -388,10 +402,12 @@ Examples:
                         choices=["dual", "signal", "image"],
                         help="多模态输入模式：dual=信号+图像，signal=只用信号，image=只用图像")
     parser.add_argument("--fusion-type", type=str, default=FUSION_TYPE,
-                        choices=["cross_attention", "late_concat"],
+                        choices=["cross_attention", "gated_cross_attention", "late_concat"],
                         help="融合方式，需要和训练该 checkpoint 时的结构保持一致")
     parser.add_argument("--thresholds", type=str, default=None,
                         help="验证集校准得到的 thresholds_val.json；仅作用于二分类任务")
+    parser.add_argument("--logit-biases", type=str, default=None,
+                        help="验证集校准得到的多分类 logit bias JSON；作用于 argmax/threshold 前")
     args = parser.parse_args()
 
     # Auto-detect output directory from checkpoint path
@@ -467,8 +483,11 @@ Examples:
     print("Running evaluation...")
     all_logits, all_labels = evaluate(model, eval_loader, vocab, args.device, input_mode=args.input_mode)
     calibrated_thresholds = load_thresholds(args.thresholds)
+    calibrated_biases = load_logit_biases(args.logit_biases)
     if calibrated_thresholds:
         print(f"Using calibrated thresholds: {args.thresholds}")
+    if calibrated_biases:
+        print(f"Using calibrated logit biases: {args.logit_biases}")
 
     # Generate reports
     print(f"\n{'=' * 70}")
@@ -508,6 +527,9 @@ Examples:
 
         logits = all_logits[logit_key]
         labels = all_labels[logit_key]
+        bias = calibrated_biases.get(logit_key)
+        if bias is not None and bias.numel() == logits.size(-1):
+            logits = logits + bias.view(1, -1)
 
         threshold = calibrated_thresholds.get(logit_key)
         if threshold is not None and logits.size(-1) == 2:
@@ -697,6 +719,7 @@ Examples:
         "input_mode": args.input_mode,
         "fusion_type": args.fusion_type,
         "thresholds": args.thresholds,
+        "logit_biases": args.logit_biases,
         "results": results,
     }
     json_path = os.path.join(save_dir, "eval_results.json")
