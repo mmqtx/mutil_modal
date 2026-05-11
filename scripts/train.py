@@ -19,6 +19,8 @@ import sys
 import time
 from datetime import datetime
 
+import numpy as np
+
 # Add project root to path for imports
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
