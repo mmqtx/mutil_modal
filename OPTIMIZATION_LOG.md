@@ -389,3 +389,32 @@
 
 - 优先做低风险优化：基于当前最佳 checkpoint 做评估侧分析、阈值/报告模板优化，或做小代码改动后再启动短程实验。
 - 若继续训练实验，先确认 `/home` 空间安全，并设置明确止损阈值。
+
+## 2026-05-11 多分类 logit bias 校准
+
+### 改动内容
+
+- 新增 `scripts/calibrate_logit_biases.py`，在验证集上为多分类任务搜索加性 logit bias。
+- `scripts/evaluate.py` 新增 `--logit-biases`，可在 argmax/threshold 前应用验证集校准得到的 bias。
+- `scripts/calibrate_thresholds.py` 和 `scripts/evaluate.py` 补充支持 `gated_cross_attention` 作为合法融合类型。
+
+### 验证结果
+
+- `/home/ljq24358/anaconda3/envs/pytorch/bin/python -m py_compile scripts/evaluate.py scripts/calibrate_thresholds.py scripts/calibrate_logit_biases.py`：通过。
+- 在当前最佳 checkpoint 的验证集上生成 `logit_biases_val.json`，多分类任务验证 macro-F1 有小幅提升：
+  - `rhythm_rate.rate_level`：0.9222 -> 0.9294
+  - `rhythm_rate.rhythm`：0.7952 -> 0.8065
+  - `conduction_axis.axis`：0.7467 -> 0.7576
+  - `conduction_axis.pr_status`：0.6969 -> 0.7148
+  - `conduction_axis.conduction_status`：0.7314 -> 0.7379
+- 将该 bias 与原有二分类 threshold 一起用于测试集，测试 macro-F1 为 0.7887。
+- 当前最佳测试 macro-F1 仍为 0.7890，因此暂不采用 logit bias 作为默认最终方案。
+
+### 当前判断
+
+- 验证集 bias 校准能改善部分少数类，但存在轻微过拟合，测试集没有超过当前最佳。
+- 该脚本保留为分析和报告侧工具，后续可以用于错误分析，但不替换当前最佳评估配置。
+
+### 提交记录
+
+- `593ba18` - `feat: add multiclass logit bias calibration`
