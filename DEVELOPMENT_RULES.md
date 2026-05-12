@@ -109,6 +109,11 @@ conda run -n pytorch python scripts/validate_structured_labels.py --limit 1000
   - `feat: add structured label validation`
   - `docs: update development rules`
 - 本地验证通过后推送到 `origin main`，除非用户明确要求不要推送。
+- 如果普通 SSH 22 端口不可用，GitHub 推送使用 443 端口：
+
+```bash
+GIT_SSH_COMMAND='ssh -p 443 -o HostName=ssh.github.com' git push origin main
+```
 
 ## 完成前检查清单
 

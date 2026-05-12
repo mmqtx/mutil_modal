@@ -341,6 +341,24 @@ def freeze_for_classifier_head_tuning(model):
     return trainable, frozen
 
 
+def freeze_for_diagnostic_chain_tuning(model):
+    """只训练诊断链，用于固定多模态表征后的任务关系微调。"""
+    model_for_names = model.module if isinstance(model, DDP) else model
+    trainable_prefixes = ("chain.",)
+    trainable = 0
+    frozen = 0
+
+    for name, param in model_for_names.named_parameters():
+        should_train = name.startswith(trainable_prefixes)
+        param.requires_grad = should_train
+        if should_train:
+            trainable += param.numel()
+        else:
+            frozen += param.numel()
+
+    return trainable, frozen
+
+
 def build_subtask_loss_weights(task_config, enabled):
     """根据配置生成子任务损失权重；默认全部为 1.0。"""
     if not enabled:
@@ -791,6 +809,8 @@ def main():
                         help="只从 checkpoint 加载模型/loss 状态，重新初始化 optimizer/scheduler 做短程微调")
     parser.add_argument("--train-classifier-heads-only", action="store_true", default=False,
                         help="只训练最终分类头和动态 loss 权重，用于固定表征后的不平衡边界微调")
+    parser.add_argument("--train-diagnostic-chain-only", action="store_true", default=False,
+                        help="只训练诊断链和动态 loss 权重，用于固定多模态表征后的任务关系微调")
     parser.add_argument("--pretrained-gem", type=str, default=GEM_PRETRAINED_PATH,
                         help="Path to GEM pretrained checkpoint (cpt_wfep_epoch_20.pt)")
     parser.add_argument("--pretrained-clip", type=str, default=CLIP_VIT_PATH,
@@ -810,6 +830,8 @@ def main():
         args["freeze_signal_encoder"] = False
     if args.get("unfreeze_image_encoder", False):
         args["freeze_image_encoder"] = False
+    if args.get("train_classifier_heads_only", False) and args.get("train_diagnostic_chain_only", False):
+        raise ValueError("--train-classifier-heads-only 和 --train-diagnostic-chain-only 不能同时启用")
 
     # ---- Seed for reproducibility ----
     import random
@@ -1009,6 +1031,12 @@ def main():
         if rank == 0:
             logging.info("Classifier-head-only tuning: ENABLED")
             logging.info(f"  trainable_head_params: {head_params:,}")
+            logging.info(f"  frozen_model_params: {frozen_params:,}")
+    elif args.get("train_diagnostic_chain_only", False):
+        chain_params, frozen_params = freeze_for_diagnostic_chain_tuning(model)
+        if rank == 0:
+            logging.info("Diagnostic-chain-only tuning: ENABLED")
+            logging.info(f"  trainable_chain_params: {chain_params:,}")
             logging.info(f"  frozen_model_params: {frozen_params:,}")
 
     model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)

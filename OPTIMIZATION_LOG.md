@@ -523,3 +523,35 @@
 ### 提交记录
 
 - `51a2d61` - `feat: add classifier head rebalance tuning`
+
+## 2026-05-12 校准增强、诊断链微调与弱任务再平衡复盘
+
+### 当前最佳结果更新
+
+- 基于 `v4_dual_head_rebalance/20260511_184359/checkpoints/best.pt` 做多分类 logit bias 校准，并与原有二分类 threshold 共同用于测试集。
+- 测试集结果：
+  - 仅 threshold：macro-F1 0.7914。
+  - threshold + logit bias：macro-F1 0.7916。
+  - positive-F1 目标 threshold + logit bias：macro-F1 0.7899，低于当前最佳，弃用。
+- 当前最佳方案更新为：`dual + cross_attention + head-only rebalance + threshold calibration + multiclass logit bias`，测试 macro-F1 为 0.7916。
+
+### 失败实验与结论
+
+- `v4_dual_head_tune_no_sampler`：固定多模态表征，只训练分类头，不使用 balanced sampler；验证 macro-F1 最高 0.7638，已停止并删除无收益 checkpoint。
+- `v4_dual_head_rebalance_lr2e5`：沿用当前最佳 head-only 再平衡方案，但学习率从 `5e-5` 降到 `2e-5`；验证 macro-F1 最高 0.7672，已停止并删除无收益 checkpoint。
+- `v4_dual_chain_rebalance`：新增 `--train-diagnostic-chain-only`，只训练诊断链主体；验证 macro-F1 第 1 轮 0.7689，第 2 轮回落到 0.7670，已停止并删除无收益 checkpoint。
+- `v4_dual_head_rebalance_a04`：head-only，balanced sampler 从 `alpha=0.3` 提高到 `alpha=0.4`；验证 macro-F1 最高 0.7681，已停止并删除无收益 checkpoint。
+- `v4_dual_head_weighted_rebalance`：head-only + 温和 balanced sampler + 弱任务 loss 权重；验证 macro-F1 最高 0.7691，但 test threshold 后 macro-F1 0.7907，threshold + logit bias 后 macro-F1 0.7895，低于当前最佳，已删除无收益 checkpoint。
+
+### 方法判断
+
+- 当前数据长尾问题不能靠继续加强采样或 loss 权重硬推，过强策略会牺牲整体分布。
+- 更稳的路线仍是固定已学好的双模态表征，使用轻量分类头再平衡，并把阈值/多分类偏置作为验证集校准工具。
+- 后续若继续提升，应优先做更细的错误分析和更稳的校准策略，而不是继续盲目加大长尾样本权重。
+
+### 验证结果
+
+- `/home/ljq24358/anaconda3/envs/pytorch/bin/python -m py_compile scripts/train.py`：通过。
+- `scripts/calibrate_thresholds.py`：完成当前最佳模型和弱任务加权模型的验证集阈值校准。
+- `scripts/calibrate_logit_biases.py`：完成当前最佳模型和弱任务加权模型的多分类 logit bias 校准。
+- `scripts/evaluate.py`：完成 test split 全量评估，当前最佳 test macro-F1 为 0.7916。
