@@ -542,6 +542,7 @@
 - `v4_dual_chain_rebalance`：新增 `--train-diagnostic-chain-only`，只训练诊断链主体；验证 macro-F1 第 1 轮 0.7689，第 2 轮回落到 0.7670，已停止并删除无收益 checkpoint。
 - `v4_dual_head_rebalance_a04`：head-only，balanced sampler 从 `alpha=0.3` 提高到 `alpha=0.4`；验证 macro-F1 最高 0.7681，已停止并删除无收益 checkpoint。
 - `v4_dual_head_weighted_rebalance`：head-only + 温和 balanced sampler + 弱任务 loss 权重；验证 macro-F1 最高 0.7691，但 test threshold 后 macro-F1 0.7907，threshold + logit bias 后 macro-F1 0.7895，低于当前最佳，已删除无收益 checkpoint。
+- `v4_dual_head_stage2_lr1e5`：从当前最佳 head-only checkpoint 继续做二阶段小学习率分类头微调；验证 macro-F1 最高 0.7684，低于当前最佳，已停止并删除无收益 checkpoint。
 
 ### 方法判断
 
